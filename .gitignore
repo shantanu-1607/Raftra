@@ -1,0 +1,18 @@
+
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+# Test artifacts & data
+*.test
+*.out
+/data/
+*.db
+# OS / IDE files
+.DS_Store
+.vscode/
+.idea/
+EOF
