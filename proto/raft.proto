@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package raft;
+
+option go_package = "github.com/shantanu-1607/raftra/proto";
+
+// ==========================================
+// 1. Internal Raft RPC Service (Node-to-Node)
+// ==========================================
+service RaftService {
+  // Invoked by Candidates to gather votes during elections
+  rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
+
+  // Invoked by Leader to replicate log entries and send heartbeats
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+}
+
+// ==========================================
+// 2. Client-Facing Key-Value API Service
+// ==========================================
+service KVService {
+  rpc Set(SetRequest) returns (SetResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
+
+// ==========================================
+// 3. Raft Core Protocol Messages (Per Figure 2)
+// ==========================================
+
+// Represents a single command stored in the replicated log
+message LogEntry {
+  uint64 index = 1;      // Position in the log (1, 2, 3...)
+  uint64 term = 2;       // The term when entry was received by leader
+  bytes command = 3;     // Serialized KV command (e.g. SET key value)
+}
+
+// --- RequestVote RPC ---
+message RequestVoteRequest {
+  uint64 term = 1;              // Candidate's current term
+  string candidate_id = 2;       // Candidate requesting vote (e.g., "node1")
+  uint64 last_log_index = 3;     // Index of candidate's last log entry
+  uint64 last_log_term = 4;      // Term of candidate's last log entry
+}
+
+message RequestVoteResponse {
+  uint64 term = 1;              // Current term of the voter (for candidate to update itself)
+  bool vote_granted = 2;        // True means candidate received vote
+}
+
+// --- AppendEntries RPC ---
+message AppendEntriesRequest {
+  uint64 term = 1;              // Leader's current term
+  string leader_id = 2;          // So followers can redirect clients
+  uint64 prev_log_index = 3;     // Index of log entry immediately preceding new ones
+  uint64 prev_log_term = 4;      // Term of prev_log_index entry
+  repeated LogEntry entries = 5;// Log entries to store (empty for heartbeat)
+  uint64 leader_commit = 6;     // Leader's commitIndex
+}
+
+message AppendEntriesResponse {
+  uint64 term = 1;              // Current term of follower (for leader to step down if old)
+  bool success = 2;             // True if follower contained entry matching prev_log_index/term
+}
+
+// ==========================================
+// 4. Client Request / Response Messages
+// ==========================================
+
+message SetRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message SetResponse {
+  bool success = 1;
+  string error = 2;
+  string leader_hint = 3;       // Address of the leader if this node is a follower
+}
+
+message GetRequest {
+  string key = 1;
+}
+
+message GetResponse {
+  string value = 1;
+  bool found = 2;
+  string error = 3;
+}
+
+message DeleteRequest {
+  string key = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+  string error = 2;
+  string leader_hint = 3;       // Address of the leader if this node is a follower
+}
