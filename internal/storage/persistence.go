@@ -21,3 +21,6 @@ type StorageBackend interface {
 	LastTerm() (uint64, error)
 	LoadAllEntries() ([]*pb.LogEntry, error)
 }
+
+//Bbolt is a pure Go, low-level, embedded key-value store designed for applications
+// that need a simple and reliable database without running a full external server like MySQL or PostgreSQL.
