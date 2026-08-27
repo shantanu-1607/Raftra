@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"sync"
 
 	pb "github.com/shantanu-1607/raftra/proto"
@@ -33,4 +34,47 @@ func (m *MemoryStore) LoadTerm() (uint64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.term, nil
+}
+
+// SaveVotedFor stores the candidate ID voted for in the current term
+func (m *MemoryStore) SaveVotedFor(candidateID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.votedFor = candidateID
+	return nil
+}
+
+// LoadVotedFor retrieves the candidate ID voted for
+func (m *MemoryStore) LoadVotedFor() (string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.votedFor, nil
+}
+
+// AppendEntries adds new log entries to the end of the log
+func (m *MemoryStore) AppendEntries(entries []*pb.LogEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries = append(m.entries, entries...)
+	return nil
+}
+
+// GetEntry retrieves a single log entry by its index
+func (m *MemoryStore) GetEntry(index uint64) (*pb.LogEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if index >= uint64(len(m.entries)) {
+		return nil, fmt.Errorf("entry index %d out of bounds", index)
+	}
+	return m.entries[index], nil
+}
+
+func (m *MemoryStore) GetEntriesFrom(startIndex uint64) ([]*pb.LogEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if startIndex >= uint64(len(m.entries)) {
+		return nil, nil
+	}
+	// Return a copy of the slice so external modifications don't cause race conditions
+	return append([]*pb.LogEntry{}, m.entries[startIndex:]...), nil
 }
