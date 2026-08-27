@@ -78,3 +78,37 @@ func (m *MemoryStore) GetEntriesFrom(startIndex uint64) ([]*pb.LogEntry, error) 
 	// Return a copy of the slice so external modifications don't cause race conditions
 	return append([]*pb.LogEntry{}, m.entries[startIndex:]...), nil
 }
+
+// TruncateFrom removes all log entries from index to the end (used during log conflict resolution)
+func (m *MemoryStore) TruncateFrom(index uint64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if index < uint64(len(m.entries)) {
+		m.entries = m.entries[:index]
+	}
+	return nil
+}
+
+// LastIndex returns the index of the very latest log entry
+func (m *MemoryStore) LastIndex() (uint64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return uint64(len(m.entries) - 1), nil
+}
+
+// LastTerm returns the term of the very latest log entry
+func (m *MemoryStore) LastTerm() (uint64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.entries) == 0 {
+		return 0, nil
+	}
+	return m.entries[len(m.entries)-1].Term, nil
+}
+
+// LoadAllEntries returns a copy of all log entries
+func (m *MemoryStore) LoadAllEntries() ([]*pb.LogEntry, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]*pb.LogEntry{}, m.entries...), nil
+}
