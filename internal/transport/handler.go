@@ -50,32 +50,29 @@ func (h *Handler) AppendEntries(ctx context.Context,req *pb.AppendEntriesRequest
 
 // Set handles client write requests
 func (h *Handler) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, error) {
-	return &pb.SetResponse {
-		    Success:        false,
-			Error:           "cluster starting up" //leader election wala logic will be done baad me
-			LeaderHint: "",
+	return &pb.SetResponse{
+		Success:    false,
+		Error:      "cluster starting up", //leader election wala logic will be done baad me
+		LeaderHint: "",
 	}, nil
 }
 
+// Get handles client read requests
+func (h *Handler) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	return &pb.GetResponse{
+		Value: "",
+		Found: false,
+		Error: "cluster starting up (leader election begins in Phase 2)",
+	}, nil
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Delete handles client delete requests
+func (h *Handler) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
+	return &pb.DeleteResponse{
+		Success:    false,
+		Error:      "cluster starting up (leader election begins in Phase 2)",
+		LeaderHint: "",
+	}, nil
+}
 
 //Timeout / Cancellation Tracker: If the caller disconnects, loses internet, or set a 100ms deadline, ctx allows Go to instantly cancel this request so we don't waste CPU.
