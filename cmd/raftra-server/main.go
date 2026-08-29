@@ -2,13 +2,17 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
 	"github.com/shantanu-1607/raftra/internal/raft"
 	"github.com/shantanu-1607/raftra/internal/storage"
+	"github.com/shantanu-1607/raftra/internal/transport"
 )
 
 func main() {
@@ -54,5 +58,25 @@ func main() {
 		logger.Error("failed to create raft node", "error", err)
 		os.Exit(1)
 	}
+
+	// 6. Start the gRPC network server
+	serverAddr := fmt.Sprintf("localhost:%d", *port)
+	server, err := transport.NewServer(serverAddr, raftNode, logger)
+	if err != nil {
+		logger.Error("failed to create gRPC server", "error", err)
+		os.Exit(1)
+	}
+
+	server.Start()
+	logger.Info("node is ready and running as follower", "id", *nodeID, "role", raftNode.Role().String())
+
+	// 7. Wait for OS termination signal (Ctrl+C / SIGTERM)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	<-sigCh
+
+	logger.Info("shutting down node", "id", *nodeID)
+	server.Stop()
+	logger.Info("node stopped gracefully", "id", *nodeID)
 
 }
