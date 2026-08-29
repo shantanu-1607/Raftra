@@ -43,7 +43,7 @@ func NewGRPCTransport(peers map[string]string, timeout time.Duration) (*GRPCTran
 			return nil, fmt.Errorf("failed to connect to peer %s: %w", peerID, addr, err)
 		}
 		t.conns[peerID] = conn
-		t.clients[peerID] = pub.NewRaftServiceClient(conn)
+		t.clients[peerID] = pb.NewRaftServiceClient(conn)
 	}
 
 	return t, nil
@@ -79,11 +79,10 @@ func (t *GRPCTransport) SendAppendEntries(peerID string, req *pb.AppendEntriesRe
 
 // Close cleanly shuts down all peer TCP connections
 func (t *GRPCTransport) Close() error {
-	t.mu.RLock()
-	client, exists := t.clients[peerID]
-	t.mu.RUnlock()
-	if !exists {
-		return fmt.Errorf("peer %s not found in transport", peerID)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, conn := range t.conns {
+		_ = conn.Close()
 	}
-
+	return nil
 }
