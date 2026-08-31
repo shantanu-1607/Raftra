@@ -97,6 +97,8 @@ func (rn *RaftNode) startElection() {
 
 			// If vote was granted, increment vote count
 			if res.VoteGranted {
+				// Use a mutex to safely update the shared vote counter
+				voteMu.Lock()
 				votesReceived++
 				hasMajority := votesReceived >= majority
 				voteMu.Unlock()
