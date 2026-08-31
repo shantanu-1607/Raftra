@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+
 	"github.com/shantanu-1607/raftra/internal/raft"
 	pb "github.com/shantanu-1607/raftra/proto"
 )
@@ -15,8 +16,8 @@ type Handler struct {
 }
 
 // NewHandler creates a new gRPC Handler attached to a RaftNode
-func NewHandler (node *raft.RaftNode) *Handler {
-	return &Handler {
+func NewHandler(node *raft.RaftNode) *Handler {
+	return &Handler{
 		node: node,
 	}
 }
@@ -34,14 +35,13 @@ func (h *Handler) RequestVote(ctx context.Context, req *pb.RequestVoteRequest) (
 	}, nil
 }
 
-
 // AppendEntries is called by the leader for heartbeats and log replication
-func (h *Handler) AppendEntries(ctx context.Context,req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
-		//in phase1 we will only return our current term, rest of the logic will be implemented baad me
-		return &pb.AppendEntriesResponse{
-			Term:     h.node.Term(),
-			Success:  false,
-		}, nil
+func (h *Handler) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+	//in phase1 we will only return our current term, rest of the logic will be implemented baad me
+	return &pb.AppendEntriesResponse{
+		Term:    h.node.Term(),
+		Success: false,
+	}, nil
 }
 
 // ==========================================
