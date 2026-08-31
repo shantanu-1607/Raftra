@@ -40,7 +40,7 @@ func NewGRPCTransport(peers map[string]string, timeout time.Duration) (*GRPCTran
 
 		if err != nil {
 			t.Close()
-			return nil, fmt.Errorf("failed to connect to peer %s: %w", peerID, addr, err)
+			return nil, fmt.Errorf("failed to connect to peer %s at %s: %w", peerID, addr, err)
 		}
 		t.conns[peerID] = conn
 		t.clients[peerID] = pb.NewRaftServiceClient(conn)
