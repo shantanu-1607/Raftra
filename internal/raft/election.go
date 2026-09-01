@@ -110,3 +110,36 @@ func (rn *RaftNode) startElection() {
 		}(peerID)
 	}
 }
+
+// becomeLeader transitions a candidate to the Leader role and starts pulsing heartbeats.
+// NOTE: Caller MUST hold rn.mu.
+
+func (rn *RaftNode) becomeLeader() {
+	if rn.role != Candidate {
+		return
+	}
+	rn.role = Leader
+	lastLogIndex, _ := rn.storage.LastIndex()
+
+	// Initialize volatile leader state (re-initialized after each election)
+	nextIndex := make(map[string]uint64)
+	matchIndex := make(map[string]uint64)
+	for peerID := range rn.peers {
+		nextIndex[peerID] = lastLogIndex + 1
+		matchIndex[peerID] = 0
+	}
+
+	rn.leader = &LeaderState{
+		NextIndex:  nextIndex,
+		MatchIndex: matchIndex,
+	}
+
+	rn.logger.Info("election won: become leader", "term", rn.persistent.CurrentTerm)
+
+	// Send immediate heartbeats to establish authority and suppress other elections
+	rn.sendHeartbeats()
+
+	// Reset heartbeat ticker to pulse periodically
+	rn.resetHeartbeatTimer()
+
+}
