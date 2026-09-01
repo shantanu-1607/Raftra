@@ -193,3 +193,56 @@ func (rn *RaftNode) sendHeartbeats() {
 	rn.mu.Unlock()
 
 }
+
+
+// HandleRequestVote handles an incoming RequestVote RPC from a candidate.
+func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVoteRequest {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+
+	// Rule 1: Reject votes if candidate's term is older than our current term 
+	if req.Term < rn.persistent.CurrentTerm {
+		return &pb.RequestVoteResponse{
+			Term:          rn.persistent.CurrentTerm,
+			VoteGranted:   false,
+		}
+	}
+
+	// If candidate's term is newer, step down to Follower
+	if req.Term > rn.persistent.CurrentTerm {
+		rn.checkTerm(req.Term)
+	}
+
+	// Rule 2: We can only vote if we haven't voted yet in this term, or already voted for this candidate
+    canVote := rn.persistent.VotedFor == "" || rn.persistent.VotedFor == req.CandidateId
+
+
+
+	// Rule 3: Election Safety (Raft §5.4.1) — Log Up-To-Date check:
+	// A voter denies its vote if its own log is more up-to-date than the candidate's.
+	lastLogIndex,_ = rn.storage.LastIndex()
+	lastLogTerm, _ = rn.storage.LastTerm()
+
+	logsUpToDate := false
+	if req.LastLogTerm > lastLogTerm {
+		logsUpToDate = true
+	} else if req.LastLogTerm == lastLogTerm && req.LastLogIndex >= lastLogIndex {
+		logsUpToDate = true
+	}
+
+
+	if canVote && logsUpToDate {
+		rn.persistent.VotedFor = req.CandidateId
+		_= rn.storage.SaveVotedFor(req.CandidateId)
+		rn.resetElectionTimer() // Granting a vote resets the election timer
+		//we want to give them time to finish the election and send us a heartbeat
+
+		rn.logger.Info("granted vote to candidate", "candidate", req.CandidateId, "term", req.Term)
+		return &pb.RequestVoteResponse{
+			Term:         rn.persistent.CurrentTerm,
+			VoteGranted:  false,
+	}
+
+}
+
+
