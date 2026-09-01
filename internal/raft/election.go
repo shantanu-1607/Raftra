@@ -194,17 +194,16 @@ func (rn *RaftNode) sendHeartbeats() {
 
 }
 
-
 // HandleRequestVote handles an incoming RequestVote RPC from a candidate.
-func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVoteRequest {
+func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVoteResponse {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
 
-	// Rule 1: Reject votes if candidate's term is older than our current term 
+	// Rule 1: Reject votes if candidate's term is older than our current term
 	if req.Term < rn.persistent.CurrentTerm {
 		return &pb.RequestVoteResponse{
-			Term:          rn.persistent.CurrentTerm,
-			VoteGranted:   false,
+			Term:        rn.persistent.CurrentTerm,
+			VoteGranted: false,
 		}
 	}
 
@@ -214,14 +213,12 @@ func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVot
 	}
 
 	// Rule 2: We can only vote if we haven't voted yet in this term, or already voted for this candidate
-    canVote := rn.persistent.VotedFor == "" || rn.persistent.VotedFor == req.CandidateId
-
-
+	canVote := rn.persistent.VotedFor == "" || rn.persistent.VotedFor == req.CandidateId
 
 	// Rule 3: Election Safety (Raft §5.4.1) — Log Up-To-Date check:
 	// A voter denies its vote if its own log is more up-to-date than the candidate's.
-	lastLogIndex,_ = rn.storage.LastIndex()
-	lastLogTerm, _ = rn.storage.LastTerm()
+	lastLogIndex, _ := rn.storage.LastIndex()
+	lastLogTerm, _ := rn.storage.LastTerm()
 
 	logsUpToDate := false
 	if req.LastLogTerm > lastLogTerm {
@@ -230,19 +227,55 @@ func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVot
 		logsUpToDate = true
 	}
 
-
 	if canVote && logsUpToDate {
 		rn.persistent.VotedFor = req.CandidateId
-		_= rn.storage.SaveVotedFor(req.CandidateId)
+		_ = rn.storage.SaveVotedFor(req.CandidateId)
 		rn.resetElectionTimer() // Granting a vote resets the election timer
-		//we want to give them time to finish the election and send us a heartbeat
+		// we want to give them time to finish the election and send us a heartbeat
 
 		rn.logger.Info("granted vote to candidate", "candidate", req.CandidateId, "term", req.Term)
 		return &pb.RequestVoteResponse{
-			Term:         rn.persistent.CurrentTerm,
-			VoteGranted:  false,
+			Term:        rn.persistent.CurrentTerm,
+			VoteGranted: true,
+		}
 	}
 
+	return &pb.RequestVoteResponse{
+		Term:        rn.persistent.CurrentTerm,
+		VoteGranted: false,
+	}
 }
 
+func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
 
+	// Reply false if leader's term is older than current term (§5.1)
+	if req.Term < rn.persistent.CurrentTerm {
+		return &pb.AppendEntriesResponse{
+			Term:    rn.persistent.CurrentTerm,
+			Success: false,
+		}
+	}
+
+	// If leader's term is higher, update our term and step down
+	if req.Term > rn.persistent.CurrentTerm {
+		rn.checkTerm(req.Term)
+	}
+
+	// If we were a candidate and received a valid heartbeat from the leader of the current term,
+	// acknowledge the leader and revert to follower
+	if rn.role == Candidate && req.Term == rn.persistent.CurrentTerm {
+		rn.role = Follower
+		rn.logger.Info("received heartbeat from leader, stepping down to follower", "leader", req.LeaderId, "term", req.Term)
+	}
+
+	// Reset election timer because we received a valid heartbeat from the active leader
+	rn.resetElectionTimer()
+
+	// (Phase 3 will add full log consistency checks and entry appending here)
+	return &pb.AppendEntriesResponse{
+		Term:    rn.persistent.CurrentTerm,
+		Success: true,
+	}
+}
