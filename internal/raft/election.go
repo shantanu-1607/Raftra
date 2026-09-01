@@ -143,3 +143,53 @@ func (rn *RaftNode) becomeLeader() {
 	rn.resetHeartbeatTimer()
 
 }
+
+// sendHeartbeats broadcasts empty AppendEntries RPCs to all peers in parallel.
+func (rn *RaftNode) sendHeartbeats() {
+	rn.mu.Lock()
+	if rn.role != Leader {
+		rn.mu.Unlock()
+		return
+	}
+
+	currentTerm := rn.persistent.CurrentTerm
+	leaderID := rn.config.NodeID
+	commitIndex := rn.volatile.CommitIndex
+
+	for peerID := range rn.peers {
+		prevIndex := rn.leader.NextIndex[peerID] - 1
+		var prevTerm uint64
+		if entry, err := rn.storage.GetEntry(prevIndex); err == nil && entry != nil {
+			prevTerm = entry.Term
+		}
+
+		req := &pb.AppendEntriesRequest{
+			Term:         currentTerm,
+			LeaderId:     leaderID,
+			PrevLogIndex: prevIndex,
+			PrevLogTerm:  prevTerm,
+			Entries:      nil, //// Empty slice signifies a heartbeat
+			//In Raft, a heartbeat is simply an AppendEntries message with NO log entries!
+			LeaderCommit: commitIndex,
+		}
+
+		go func(peer string, r *pb.AppendEntriesRequest) {
+			resp, err := rn.transport.SendAppendEntries(peer, r)
+			if err != nil {
+				rn.logger.Info("failed to send heartbeat to peer", "peer", peer, "err", err)
+				return
+			}
+
+			rn.mu.Lock()
+			defer rn.mu.Unlock()
+
+			if rn.checkTerm(resp.Term) {
+				rn.resetElectionTimer()
+				return
+			}
+		}(peerID, req)
+	}
+
+	rn.mu.Unlock()
+
+}
