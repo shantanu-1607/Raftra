@@ -28,20 +28,14 @@ func NewHandler(node *raft.RaftNode) *Handler {
 
 // RequestVote is called by candidates asking for votes during an election
 func (h *Handler) RequestVote(ctx context.Context, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
-	// In Phase 1, we return our current term. Full election logic is wired in Phase 2.
-	return &pb.RequestVoteResponse{
-		Term:        h.node.Term(),
-		VoteGranted: false,
-	}, nil
+	resp := h.node.HandleRequestVote(req)
+	return resp, nil
 }
 
 // AppendEntries is called by the leader for heartbeats and log replication
 func (h *Handler) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
-	//in phase1 we will only return our current term, rest of the logic will be implemented baad me
-	return &pb.AppendEntriesResponse{
-		Term:    h.node.Term(),
-		Success: false,
-	}, nil
+	resp := h.node.HandleAppendEntries(req)
+	return resp, nil
 }
 
 // ==========================================
@@ -52,7 +46,7 @@ func (h *Handler) AppendEntries(ctx context.Context, req *pb.AppendEntriesReques
 func (h *Handler) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, error) {
 	return &pb.SetResponse{
 		Success:    false,
-		Error:      "cluster starting up", //leader election wala logic will be done baad me
+		Error:      "cluster starting up", // Leader election logic will be wired in Phase 3
 		LeaderHint: "",
 	}, nil
 }
