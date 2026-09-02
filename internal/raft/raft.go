@@ -33,9 +33,10 @@ type RaftNode struct {
 	volatile   VolatileState
 	leader     *LeaderState // nil when not leader
 
-	// State Machine & Persistence Backend
-	kvStore *kvstore.KVStore
-	storage storage.StorageBackend
+	// State Machine, Persistence & Transport
+	kvStore   *kvstore.KVStore
+	storage   storage.StorageBackend
+	transport Transport
 
 	// Coordination Channels & Timers
 	stopCh         chan struct{}
@@ -201,6 +202,9 @@ func (rn *RaftNode) Term() uint64 {
 // randomizedElectionTimeout returns a random duration between Min and Max timeout
 func (rn *RaftNode) randomizedElectionTimeout() time.Duration {
 	diff := rn.config.ElectionTimeoutMax - rn.config.ElectionTimeoutMin
+	if diff <= 0 {
+		return rn.config.ElectionTimeoutMin
+	}
 	randomExtra := time.Duration(rand.Int63n(int64(diff)))
 	return rn.config.ElectionTimeoutMin + randomExtra
 }
