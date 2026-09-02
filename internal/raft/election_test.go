@@ -192,3 +192,89 @@ func TestHeartbeatResetsTimer(t *testing.T) {
 		t.Fatalf("expected node to remain Follower under continuous heartbeats, got %v", node.Role())
 	}
 }
+
+// 7. Log Up-To-Date check: When terms are equal, longer log index wins (§5.4.1)
+func TestLogUpToDateTieBreaker(t *testing.T) {
+	node, store := createTestNode("node1", []PeerConfig{{ID: "node2"}})
+
+	// Voter has 3 entries, all at Term 1 (LastLogIndex = 3, LastLogTerm = 1)
+	_ = store.AppendEntries([]*pb.LogEntry{
+		{Index: 1, Term: 1},
+		{Index: 2, Term: 1},
+		{Index: 3, Term: 1},
+	})
+	_ = store.SaveTerm(1)
+	node.persistent.CurrentTerm = 1
+
+	// Case A: Candidate has same term (Term 1) but SHORTER log (Index 2) -> DENY
+	reqShorter := &pb.RequestVoteRequest{
+		Term:         1,
+		CandidateId:  "node2",
+		LastLogIndex: 2,
+		LastLogTerm:  1,
+	}
+	respA := node.HandleRequestVote(reqShorter)
+	if respA.VoteGranted {
+		t.Fatalf("expected vote denied when candidate log is shorter in same term")
+	}
+
+	// Case B: Candidate has same term (Term 1) and EQUAL log length (Index 3) -> GRANT
+	reqEqual := &pb.RequestVoteRequest{
+		Term:         1,
+		CandidateId:  "node2",
+		LastLogIndex: 3,
+		LastLogTerm:  1,
+	}
+	respB := node.HandleRequestVote(reqEqual)
+	if !respB.VoteGranted {
+		t.Fatalf("expected vote granted when candidate log has equal term and length")
+	}
+}
+
+// 8. Follower rejects heartbeats from stale/deposed leaders (§5.1)
+func TestRejectAppendEntriesFromStaleLeader(t *testing.T) {
+	node, store := createTestNode("node1", []PeerConfig{{ID: "node2"}})
+	_ = store.SaveTerm(5)
+	node.persistent.CurrentTerm = 5
+
+	// Old leader tries to send heartbeat from Term 4
+	staleHeartbeat := &pb.AppendEntriesRequest{
+		Term:     4,
+		LeaderId: "node2",
+	}
+
+	resp := node.HandleAppendEntries(staleHeartbeat)
+	if resp.Success {
+		t.Fatalf("expected follower to reject heartbeat from stale leader on term 4 when follower is on term 5")
+	}
+	if resp.Term != 5 {
+		t.Fatalf("expected returned term to be follower's current term 5, got %d", resp.Term)
+	}
+}
+
+// 9. Candidate increments term on repeated election timeouts
+func TestTermIncrementsAcrossElections(t *testing.T) {
+	node, _ := createTestNode("node1", []PeerConfig{{ID: "node2"}})
+	// Mock peer to always reject votes so election fails
+	mock := &mockTransport{
+		sendVoteFunc: func(peerID string, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
+			return &pb.RequestVoteResponse{Term: req.Term, VoteGranted: false}, nil
+		},
+	}
+	node.SetTransport(mock)
+
+	node.Start()
+	defer node.Stop()
+
+	// Let the node attempt elections across multiple timeouts
+	time.Sleep(250 * time.Millisecond)
+
+	// Since peer rejected votes, node should have started multiple terms
+	if node.Term() < 2 {
+		t.Fatalf("expected term to increment to at least 2 after failed elections, got %d", node.Term())
+	}
+	if node.Role() != Candidate {
+		t.Fatalf("expected node to remain Candidate, got %v", node.Role())
+	}
+}
+
