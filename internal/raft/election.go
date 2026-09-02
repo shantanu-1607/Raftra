@@ -102,7 +102,7 @@ func (rn *RaftNode) startElection() {
 				votesReceived++
 				hasMajority := votesReceived >= majority
 				voteMu.Unlock()
-				if hasMajority {
+				if hasMajority && rn.role == Candidate {
 					rn.becomeLeader()
 				}
 			}
@@ -113,11 +113,11 @@ func (rn *RaftNode) startElection() {
 
 // becomeLeader transitions a candidate to the Leader role and starts pulsing heartbeats.
 // NOTE: Caller MUST hold rn.mu.
-
 func (rn *RaftNode) becomeLeader() {
 	if rn.role != Candidate {
 		return
 	}
+
 	rn.role = Leader
 	lastLogIndex, _ := rn.storage.LastIndex()
 
@@ -136,19 +136,24 @@ func (rn *RaftNode) becomeLeader() {
 
 	rn.logger.Info("election won: become leader", "term", rn.persistent.CurrentTerm)
 
-	// Send immediate heartbeats to establish authority and suppress other elections
-	rn.sendHeartbeats()
+	// Send immediate heartbeats using the locked version (we already hold rn.mu!)
+	rn.sendHeartbeatsLocked()
 
 	// Reset heartbeat ticker to pulse periodically
 	rn.resetHeartbeatTimer()
-
 }
 
-// sendHeartbeats broadcasts empty AppendEntries RPCs to all peers in parallel.
+// sendHeartbeats is called by the timer when rn.mu is NOT held.
 func (rn *RaftNode) sendHeartbeats() {
 	rn.mu.Lock()
+	defer rn.mu.Unlock()
+	rn.sendHeartbeatsLocked()
+}
+
+// sendHeartbeatsLocked broadcasts empty AppendEntries RPCs to all peers in parallel.
+// NOTE: Caller MUST hold rn.mu.
+func (rn *RaftNode) sendHeartbeatsLocked() {
 	if rn.role != Leader {
-		rn.mu.Unlock()
 		return
 	}
 
@@ -168,15 +173,14 @@ func (rn *RaftNode) sendHeartbeats() {
 			LeaderId:     leaderID,
 			PrevLogIndex: prevIndex,
 			PrevLogTerm:  prevTerm,
-			Entries:      nil, //// Empty slice signifies a heartbeat
-			//In Raft, a heartbeat is simply an AppendEntries message with NO log entries!
+			Entries:      nil, // Empty slice signifies a heartbeat
 			LeaderCommit: commitIndex,
 		}
 
 		go func(peer string, r *pb.AppendEntriesRequest) {
 			resp, err := rn.transport.SendAppendEntries(peer, r)
 			if err != nil {
-				rn.logger.Info("failed to send heartbeat to peer", "peer", peer, "err", err)
+				rn.logger.Debug("failed to send heartbeat to peer", "peer", peer, "err", err)
 				return
 			}
 
@@ -189,9 +193,6 @@ func (rn *RaftNode) sendHeartbeats() {
 			}
 		}(peerID, req)
 	}
-
-	rn.mu.Unlock()
-
 }
 
 // HandleRequestVote handles an incoming RequestVote RPC from a candidate.
