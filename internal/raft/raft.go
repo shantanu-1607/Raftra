@@ -8,7 +8,16 @@ import (
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
 	"github.com/shantanu-1607/raftra/internal/storage"
+	pb "github.com/shantanu-1607/raftra/proto"
 )
+
+// Transport defines the outbound RPC interface required by RaftNode
+type Transport interface {
+	SendRequestVote(peerID string, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error)
+	SendAppendEntries(peerID string, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error)
+
+	Close() error
+}
 
 // RaftNode represents a single consensus node in the cluster
 type RaftNode struct {
