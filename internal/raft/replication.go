@@ -107,7 +107,7 @@ func (rn *RaftNode) sendAppendEntriesToPeerLocked(peerID string) {
 		rn.mu.Lock()
 		defer rn.mu.Unlock()
 		// 1. If follower has a higher term, step down immediately (§5.1)
-		if rn.checkTerm(resp.Term) {
+		if rn.checkTer(resp.Term) {
 			rn.resetElectionTimer()
 			return
 		}
@@ -145,7 +145,6 @@ func (rn *RaftNode) sendAppendEntriesToPeerLocked(peerID string) {
 
 }
 
-
 // checkAndUpdateCommitIndexLocked checks if there exists an N > commitIndex such that
 // a majority of matchIndex[i] >= N and log[N].term == currentTerm (§5.3 & §5.4.2).
 // NOTE: Caller MUST hold rn.mu.
@@ -156,9 +155,9 @@ func (rn *RaftNode) checkAndUpdateCommitIndexLocked() {
 		return
 	}
 
-	lastLogIndex, _ := rn.storage.LastIndex();
+	lastLogIndex, _ := rn.storage.LastIndex()
 	totalNodes := len(rn.peers) + 1
-	majority := (totalNodes/2) + 1
+	majority := (totalNodes / 2) + 1
 
 	// Check every uncommitted index from commitIndex + 1 up to the end of the log
 	for n := rn.volatile.CommitIndex + 1; n <= lastLogIndex; n++ {
@@ -235,4 +234,3 @@ func (rn *RaftNode) LastApplied() uint64 {
 	defer rn.mu.Unlock()
 	return rn.volatile.LastApplied
 }
-
