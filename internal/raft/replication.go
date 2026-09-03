@@ -14,7 +14,7 @@ var ErrNotLeader = errors.New("node is not a leader")
 // If this node is the leader, it appends the command to its local log and triggers replication.
 // Returns the allocated log index, or ErrNotLeader if this node is not the leader.
 
-func (r *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
+func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
 
@@ -64,4 +64,16 @@ func (rn *RaftNode) broadcastAppendEntriesLocked() {
 	for peerID := range rn.peers {
 		rn.sendAppendEntriesToPeerLocked(peerID)
 	}
+}
+
+// sendAppendEntriesToPeerLocked sends an AppendEntries RPC with pending entries to a single follower.
+func (rn *RaftNode) sendAppendEntriesToPeerLocked(peerID string) {
+
+	if rn.role != Leader || rn.Leader == nil {
+		return
+	}
+
+	currentTerm := rn.persistent.CurrentTerm
+	leaderID := rn.config.NodeID
+	commitIndex := rn.volatile.CommitIndex
 }
