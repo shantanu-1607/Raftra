@@ -69,7 +69,7 @@ func (rn *RaftNode) broadcastAppendEntriesLocked() {
 // sendAppendEntriesToPeerLocked sends an AppendEntries RPC with pending entries to a single follower.
 func (rn *RaftNode) sendAppendEntriesToPeerLocked(peerID string) {
 
-	if rn.role != Leader || rn.Leader == nil {
+	if rn.role != Leader || rn.leader == nil {
 		return
 	}
 
