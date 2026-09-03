@@ -56,3 +56,12 @@ func (r *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 }
 
 // broadcastAppendEntriesLocked replicates pending log entries to all peers.
+func (rn *RaftNode) broadcastAppendEntriesLocked() {
+	if rn.role != Leader {
+		return
+	}
+
+	for peerID := range rn.peers {
+		rn.sendAppendEntriesToPeerLocked(peerID)
+	}
+}
