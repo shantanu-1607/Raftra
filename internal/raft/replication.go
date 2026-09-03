@@ -194,18 +194,22 @@ func (rn *RaftNode) checkAndUpdateCommitIndexLocked() {
 func (rn *RaftNode) applyCommittedEntriesLocked() {
 	for rn.volatile.LastApplied < rn.volatile.CommitIndex {
 		rn.volatile.LastApplied++
+
 		entry, err := rn.storage.GetEntry(rn.volatile.LastApplied)
+
 		if err != nil || entry == nil || len(entry.Command) == 0 {
 			continue
 		}
 
 		cmd, err := kvstore.DecodeCommand(entry.Command)
+
 		if err != nil {
 			rn.logger.Error("failed to decode command for state machine", "index", rn.volatile.LastApplied, "err", err)
 			continue
 		}
 
 		rn.kvStore.Apply(cmd)
+
 		rn.logger.Info("applied command to state machine",
 			"index", rn.volatile.LastApplied,
 			"key", cmd.Key,
