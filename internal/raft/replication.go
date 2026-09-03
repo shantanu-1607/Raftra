@@ -24,7 +24,7 @@ func (r *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 	}
 
 	lastIndex, _ := rn.storage.LastIndex()
-	newIndex := lasrIndex + 1
+	newIndex := lastIndex + 1
 	currentTerm := rn.persistent.CurrentTerm
 
 	entry := &pb.LogEntry{
@@ -41,4 +41,18 @@ func (r *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 
 	rn.logger.Info("proposing new command", "index", newIndex, "term", currentTerm)
 
+	// 2. Fast-path: In a single-node cluster, 1 node is already the majority!
+	if len(rn.peers) == 0 {
+		rn.volatile.CommitIndex = newIndex
+		rn.applyCommittedEntriesLocked()
+		return newIndex, nil
+	}
+
+	// 3. Immediately replicate the new entry to all followers
+	rn.broadcastAppendEntriesLocked()
+
+	return newIndex, nil
+
 }
+
+// broadcastAppendEntriesLocked replicates pending log entries to all peers.
