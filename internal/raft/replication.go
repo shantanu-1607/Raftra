@@ -3,6 +3,7 @@ package raft
 import (
 	"errors"
 
+	"github.com/shantanu-1607/raftra/internal/kvstore"
 	pb "github.com/shantanu-1607/raftra/proto"
 )
 
@@ -173,18 +174,65 @@ func (rn *RaftNode) checkAndUpdateCommitIndexLocked() {
 
 		// Count how many nodes have replicated entry n (Leader starts with 1)
 		matchCount := 1
-		for _, matchIdx := rnage rn.leader.matchIdx {
+		for _, matchIdx := range rn.leader.MatchIndex {
 			if matchIdx >= n {
-				matchIdx++
+				matchCount++
 			}
 		}
 
 		// If a majority of nodes have this entry, advance commitIndex!
 		if matchCount >= majority {
 			rn.volatile.CommitIndex = n
-			rn.logger.Info("advanced commitIndex", "commitIndex", n, "term", rn.persistent.CurrentTerm,) 
+			rn.logger.Info("advanced commitIndex", "commitIndex", n, "term", rn.persistent.CurrentTerm)
 		}
 	}
 	// Apply all newly committed entries to the in-memory database!
 	rn.applyCommittedEntriesLocked()
 }
+
+// applyCommittedEntriesLocked applies all newly committed entries to the KV state machine.
+// NOTE: Caller MUST hold rn.mu.
+func (rn *RaftNode) applyCommittedEntriesLocked() {
+	for rn.volatile.LastApplied < rn.volatile.CommitIndex {
+		rn.volatile.LastApplied++
+		entry, err := rn.storage.GetEntry(rn.volatile.LastApplied)
+		if err != nil || entry == nil || len(entry.Command) == 0 {
+			continue
+		}
+
+		cmd, err := kvstore.DecodeCommand(entry.Command)
+		if err != nil {
+			rn.logger.Error("failed to decode command for state machine", "index", rn.volatile.LastApplied, "err", err)
+			continue
+		}
+
+		rn.kvStore.Apply(cmd)
+		rn.logger.Info("applied command to state machine",
+			"index", rn.volatile.LastApplied,
+			"key", cmd.Key,
+			"type", cmd.Type,
+		)
+	}
+}
+
+// IsLeader returns true if the node is currently the Leader (thread-safe).
+func (rn *RaftNode) IsLeader() bool {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+	return rn.role == Leader
+}
+
+// CommitIndex returns the highest log index known to be committed (thread-safe).
+func (rn *RaftNode) CommitIndex() uint64 {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+	return rn.volatile.CommitIndex
+}
+
+// LastApplied returns the highest log index applied to the state machine (thread-safe).
+func (rn *RaftNode) LastApplied() uint64 {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+	return rn.volatile.LastApplied
+}
+
