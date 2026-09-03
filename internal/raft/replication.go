@@ -171,7 +171,20 @@ func (rn *RaftNode) checkAndUpdateCommitIndexLocked() {
 			continue
 		}
 
-		
-	
+		// Count how many nodes have replicated entry n (Leader starts with 1)
+		matchCount := 1
+		for _, matchIdx := rnage rn.leader.matchIdx {
+			if matchIdx >= n {
+				matchIdx++
+			}
+		}
 
+		// If a majority of nodes have this entry, advance commitIndex!
+		if matchCount >= majority {
+			rn.volatile.CommitIndex = n
+			rn.logger.Info("advanced commitIndex", "commitIndex", n, "term", rn.persistent.CurrentTerm,) 
+		}
+	}
+	// Apply all newly committed entries to the in-memory database!
+	rn.applyCommittedEntriesLocked()
 }
