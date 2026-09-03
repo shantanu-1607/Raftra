@@ -107,7 +107,7 @@ func (rn *RaftNode) sendAppendEntriesToPeerLocked(peerID string) {
 		rn.mu.Lock()
 		defer rn.mu.Unlock()
 		// 1. If follower has a higher term, step down immediately (§5.1)
-		if rn.checkTer(resp.Term) {
+		if rn.checkTerm(resp.Term) {
 			rn.resetElectionTimer()
 			return
 		}
