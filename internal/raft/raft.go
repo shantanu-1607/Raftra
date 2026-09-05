@@ -32,6 +32,7 @@ type RaftNode struct {
 	persistent PersistentState
 	volatile   VolatileState
 	leader     *LeaderState // nil when not leader
+	leaderID   string       //id of the current known leader
 
 	// State Machine, Persistence & Transport
 	kvStore   *kvstore.KVStore
@@ -207,4 +208,15 @@ func (rn *RaftNode) randomizedElectionTimeout() time.Duration {
 	}
 	randomExtra := time.Duration(rand.Int63n(int64(diff)))
 	return rn.config.ElectionTimeoutMin + randomExtra
+}
+
+// LeaderID returns the ID of the current known leader (thread-safe).
+
+func (rn *RaftNode) LeaderID() string {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+	if rn.role == Leader {
+		return rn.config.NodeID
+	}
+	return rn.leaderID
 }

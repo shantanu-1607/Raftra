@@ -247,11 +247,12 @@ func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVot
 	}
 }
 
+// HandleAppendEntries processes incoming AppendEntries RPCs from the leader (replicated logs and heartbeats).
 func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
 
-	// Reply false if leader's term is older than current term (§5.1)
+	// 1. Reply false if leader's term is older than our current term (§5.1)
 	if req.Term < rn.persistent.CurrentTerm {
 		return &pb.AppendEntriesResponse{
 			Term:    rn.persistent.CurrentTerm,
@@ -259,22 +260,115 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 		}
 	}
 
-	// If leader's term is higher, update our term and step down
+	// 2. If leader's term is higher, update our term and step down (§5.1)
 	if req.Term > rn.persistent.CurrentTerm {
 		rn.checkTerm(req.Term)
 	}
 
 	// If we were a candidate and received a valid heartbeat from the leader of the current term,
-	// acknowledge the leader and revert to follower
+	// acknowledge the leader and revert to follower (§5.2)
 	if rn.role == Candidate && req.Term == rn.persistent.CurrentTerm {
 		rn.role = Follower
-		rn.logger.Info("received heartbeat from leader, stepping down to follower", "leader", req.LeaderId, "term", req.Term)
+		rn.logger.Info("received valid heartbeat from leader, stepping down to follower", "leader", req.LeaderId, "term", req.Term)
 	}
 
-	// Reset election timer because we received a valid heartbeat from the active leader
+	// Record the current leader ID and reset election timer (§5.2)
+	rn.leaderID = req.LeaderId
 	rn.resetElectionTimer()
 
-	// (Phase 3 will add full log consistency checks and entry appending here)
+	// 3. Log consistency check (§5.3):
+	// Reply false if our log doesn't contain an entry at req.PrevLogIndex matching req.PrevLogTerm
+	if req.PrevLogIndex > 0 {
+		entry, err := rn.storage.GetEntry(req.PrevLogIndex)
+		if err != nil || entry == nil {
+			// Follower is missing the entry at PrevLogIndex!
+			return &pb.AppendEntriesResponse{
+				Term:    rn.persistent.CurrentTerm,
+				Success: false,
+			}
+		}
+		if entry.Term != req.PrevLogTerm {
+			// Term mismatch at PrevLogIndex!
+			return &pb.AppendEntriesResponse{
+				Term:    rn.persistent.CurrentTerm,
+				Success: false,
+			}
+		}
+	}
+
+	// 4. Handle log conflicts and append new entries (§5.3):
+	// If an existing entry conflicts with a new one (same index but different term),
+	// delete the existing entry and all that follow it (§5.3)
+	for i, newEntry := range req.Entries {
+		existingIndex := req.PrevLogIndex + 1 + uint64(i)
+		existing, err := rn.storage.GetEntry(existingIndex)
+		if err != nil || existing == nil {
+			// No existing entry at this index: append this entry and all subsequent entries
+			toAppend := req.Entries[i:]
+			if err := rn.storage.AppendEntries(toAppend); err != nil {
+				rn.logger.Error("failed to append entries to storage", "err", err)
+				return &pb.AppendEntriesResponse{
+					Term:    rn.persistent.CurrentTerm,
+					Success: false,
+				}
+			}
+			rn.persistent.Log = append(rn.persistent.Log, toAppend...)
+			break
+		}
+
+		if existing.Term != newEntry.Term {
+			// Conflict detected! Truncate log from existingIndex onward
+			rn.logger.Warn("log conflict detected, truncating from index",
+				"index", existingIndex,
+				"existingTerm", existing.Term,
+				"newTerm", newEntry.Term,
+			)
+
+			if err := rn.storage.TruncateFrom(existingIndex); err != nil {
+				rn.logger.Error("failed to truncate log", "err", err)
+				return &pb.AppendEntriesResponse{
+					Term:    rn.persistent.CurrentTerm,
+					Success: false,
+				}
+			}
+
+			if existingIndex < uint64(len(rn.persistent.Log)) {
+				rn.persistent.Log = rn.persistent.Log[:existingIndex]
+			}
+
+			// Append new entry and all remaining entries from leader
+			toAppend := req.Entries[i:]
+			if err := rn.storage.AppendEntries(toAppend); err != nil {
+				rn.logger.Error("failed to append entries to storage after truncate", "error", err)
+				return &pb.AppendEntriesResponse{
+					Term:    rn.persistent.CurrentTerm,
+					Success: false,
+				}
+			}
+			rn.persistent.Log = append(rn.persistent.Log, toAppend...)
+			break
+		}
+		// If existing.Term == newEntry.Term, entry already matches! Keep it and check next entry.
+	}
+
+	// 5. Update follower's commitIndex (§5.3):
+	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+	if req.LeaderCommit > rn.volatile.CommitIndex {
+		lastLogIndex, _ := rn.storage.LastIndex()
+		newCommitIndex := req.LeaderCommit
+		if lastLogIndex < newCommitIndex {
+			newCommitIndex = lastLogIndex
+		}
+
+		if newCommitIndex > rn.volatile.CommitIndex {
+			rn.volatile.CommitIndex = newCommitIndex
+			rn.logger.Info("follower advanced commitIndex", "commitIndex", rn.volatile.CommitIndex, "leaderCommit", req.LeaderCommit)
+
+			// 6. Apply newly committed entries to the follower's KV state machine!
+			rn.applyCommittedEntriesLocked()
+		}
+	}
+
 	return &pb.AppendEntriesResponse{
 		Term:    rn.persistent.CurrentTerm,
 		Success: true,
