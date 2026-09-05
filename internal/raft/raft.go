@@ -32,6 +32,7 @@ type RaftNode struct {
 	persistent PersistentState
 	volatile   VolatileState
 	leader     *LeaderState // nil when not leader
+	leaderID   string       //id of the current known leader
 
 	// State Machine, Persistence & Transport
 	kvStore   *kvstore.KVStore
