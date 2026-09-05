@@ -316,6 +316,29 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 
 		}
 
+		if existing.Term != newEntry.Term {
+			// Conflict detected! Truncate log from existingIndex onward
+			rn.logger.Warn("log conflict detected, truncating from index",
+				"index", existingIndex,
+				"existingTerm", existing.Term,
+				"newTerm", newEntry.Term,
+			)
+
+			if err := rn.storage.TruncateFrom(existingIndex); err != nil {
+
+				rn.logger.Error("failed to truncate log", "err", err)
+				return &pb.AppendEntriesResponse{
+					Term:    rn.persistent.CurrentTerm,
+					Success: false,
+				}
+			}
+
+			if existingIndex < uint64(len(rn.persistent.Log)) {
+				rn.persistent.Log = rn.persistent.Log[:existingIndex]
+			}
+
+		}
+
 	}
 
 }
