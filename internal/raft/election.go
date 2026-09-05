@@ -247,11 +247,12 @@ func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVot
 	}
 }
 
+// HandleAppendEntries processes incoming AppendEntries RPCs from the leader (replicated logs and heartbeats).
 func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.AppendEntriesResponse {
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
 
-	// Reply false if leader's term is older than current term (§5.1)
+	// 1. Reply false if leader's term is older than our current term (§5.1)
 	if req.Term < rn.persistent.CurrentTerm {
 		return &pb.AppendEntriesResponse{
 			Term:    rn.persistent.CurrentTerm,
@@ -259,24 +260,37 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 		}
 	}
 
-	// If leader's term is higher, update our term and step down
+	// 2. If leader's term is higher, update our term and step down (§5.1)
 	if req.Term > rn.persistent.CurrentTerm {
 		rn.checkTerm(req.Term)
 	}
 
 	// If we were a candidate and received a valid heartbeat from the leader of the current term,
-	// acknowledge the leader and revert to follower
+	// acknowledge the leader and revert to follower (§5.2)
 	if rn.role == Candidate && req.Term == rn.persistent.CurrentTerm {
 		rn.role = Follower
-		rn.logger.Info("received heartbeat from leader, stepping down to follower", "leader", req.LeaderId, "term", req.Term)
+		rn.logger.Info("received valid heartbeat from leader,stepping down to follower", "leader", req.LeaderId, "term", req.Term)
 	}
 
-	// Reset election timer because we received a valid heartbeat from the active leader
-	rn.resetElectionTimer()
+	// 3. Log consistency check (§5.3):
+	// Reply false if our log doesn't contain an entry at req.PrevLogIndex matching req.PrevLogTerm
 
-	// (Phase 3 will add full log consistency checks and entry appending here)
-	return &pb.AppendEntriesResponse{
-		Term:    rn.persistent.CurrentTerm,
-		Success: true,
+	if req.PrevLogIndex > 0 {
+		entry, err := rn.storage.GetEntry(req.PrevLogIndex)
+		if err != nil || entry == nil {
+			// Follower is missing the entry at PrevLogIndex!
+			return &pb.AppendEntriesResponse{
+				Term:    rn.persistent.CurrentTerm,
+				Success: false,
+			}
+		}
+		if entry.Term != req.PrevLogTerm {
+			// Term mismatch at PrevLogIndex!
+			return &pb.AppendEntriesResponse{
+				Term:    rn.persistent.CurrentTerm,
+				Success: false,
+			}
+		}
 	}
+
 }
