@@ -354,5 +354,23 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 		// If existing.Term == newEntry.Term, entry already matches! Keep it and check next entry.
 
 	}
+	// 5. Update follower's commitIndex (§5.3):
+	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+	if req.LeaderCommit > rn.volatile.CommitIndex {
+		lastLogIndex, _ := rn.storage.LastIndex()
+		newCommitIndex := req.LeaderCommit
+		if lastLogIndex < req.LeaderCommit {
+			newCommitIndex = lastLogIndex
+		}
+
+		if newCommitIndex > rn.volatile.CommitIndex {
+			rn.volatile.CommitIndex = newCommitIndex
+			rn.logger.Info("follower advanced commitIndex", "commitIndex", rn.volatile.CommitIndex, "leaderCommit", req.LeaderCommit)
+			
+
+			// 6. Apply newly committed entries to the follower's KV state machine!
+			rn.applyCommittedEntriesLocked()
+	}
+	
 
 }
