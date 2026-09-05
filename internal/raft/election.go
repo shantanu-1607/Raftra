@@ -337,7 +337,21 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 				rn.persistent.Log = rn.persistent.Log[:existingIndex]
 			}
 
+			// Append new entry and all remaining entries from leader
+			toAppend := req.Entries[i:]
+			if err := rn.storage.AppendEntries(toAppend); err != nil {
+				rn.logger.Info("failed to append entries to storage after truncate", "error", err)
+				return &pb.AppendEntriesResponse{
+					Term:    rn.persistent.CurrentTerm,
+					Success: false,
+				}
+			}
+			rn.persistent.Log = append(rn.persistent.Log, toAppend...)
+			break
+
 		}
+
+		// If existing.Term == newEntry.Term, entry already matches! Keep it and check next entry.
 
 	}
 
