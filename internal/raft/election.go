@@ -371,6 +371,9 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 			// 6. Apply newly committed entries to the follower's KV state machine!
 			rn.applyCommittedEntriesLocked()
 	}
-	
+	return &pb.AppendEntriesResponse{
+		Term:    rn.persistent.CurrentTerm,
+		Success: true,
+	}
 
 }
