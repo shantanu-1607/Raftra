@@ -269,12 +269,15 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 	// acknowledge the leader and revert to follower (§5.2)
 	if rn.role == Candidate && req.Term == rn.persistent.CurrentTerm {
 		rn.role = Follower
-		rn.logger.Info("received valid heartbeat from leader,stepping down to follower", "leader", req.LeaderId, "term", req.Term)
+		rn.logger.Info("received valid heartbeat from leader, stepping down to follower", "leader", req.LeaderId, "term", req.Term)
 	}
+
+	// Record the current leader ID and reset election timer (§5.2)
+	rn.leaderID = req.LeaderId
+	rn.resetElectionTimer()
 
 	// 3. Log consistency check (§5.3):
 	// Reply false if our log doesn't contain an entry at req.PrevLogIndex matching req.PrevLogTerm
-
 	if req.PrevLogIndex > 0 {
 		entry, err := rn.storage.GetEntry(req.PrevLogIndex)
 		if err != nil || entry == nil {
@@ -296,7 +299,6 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 	// 4. Handle log conflicts and append new entries (§5.3):
 	// If an existing entry conflicts with a new one (same index but different term),
 	// delete the existing entry and all that follow it (§5.3)
-
 	for i, newEntry := range req.Entries {
 		existingIndex := req.PrevLogIndex + 1 + uint64(i)
 		existing, err := rn.storage.GetEntry(existingIndex)
@@ -304,16 +306,14 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 			// No existing entry at this index: append this entry and all subsequent entries
 			toAppend := req.Entries[i:]
 			if err := rn.storage.AppendEntries(toAppend); err != nil {
-				rn.logger.Info("failed to append entries to storage", "err", err)
-
+				rn.logger.Error("failed to append entries to storage", "err", err)
 				return &pb.AppendEntriesResponse{
 					Term:    rn.persistent.CurrentTerm,
 					Success: false,
 				}
-				rn.persistent.Log = append(rn.persistent.Log, toAppend...)
-				break
 			}
-
+			rn.persistent.Log = append(rn.persistent.Log, toAppend...)
+			break
 		}
 
 		if existing.Term != newEntry.Term {
@@ -325,7 +325,6 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 			)
 
 			if err := rn.storage.TruncateFrom(existingIndex); err != nil {
-
 				rn.logger.Error("failed to truncate log", "err", err)
 				return &pb.AppendEntriesResponse{
 					Term:    rn.persistent.CurrentTerm,
@@ -340,7 +339,7 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 			// Append new entry and all remaining entries from leader
 			toAppend := req.Entries[i:]
 			if err := rn.storage.AppendEntries(toAppend); err != nil {
-				rn.logger.Info("failed to append entries to storage after truncate", "error", err)
+				rn.logger.Error("failed to append entries to storage after truncate", "error", err)
 				return &pb.AppendEntriesResponse{
 					Term:    rn.persistent.CurrentTerm,
 					Success: false,
@@ -348,32 +347,30 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 			}
 			rn.persistent.Log = append(rn.persistent.Log, toAppend...)
 			break
-
 		}
-
 		// If existing.Term == newEntry.Term, entry already matches! Keep it and check next entry.
-
 	}
+
 	// 5. Update follower's commitIndex (§5.3):
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	if req.LeaderCommit > rn.volatile.CommitIndex {
 		lastLogIndex, _ := rn.storage.LastIndex()
 		newCommitIndex := req.LeaderCommit
-		if lastLogIndex < req.LeaderCommit {
+		if lastLogIndex < newCommitIndex {
 			newCommitIndex = lastLogIndex
 		}
 
 		if newCommitIndex > rn.volatile.CommitIndex {
 			rn.volatile.CommitIndex = newCommitIndex
 			rn.logger.Info("follower advanced commitIndex", "commitIndex", rn.volatile.CommitIndex, "leaderCommit", req.LeaderCommit)
-			
 
 			// 6. Apply newly committed entries to the follower's KV state machine!
 			rn.applyCommittedEntriesLocked()
+		}
 	}
+
 	return &pb.AppendEntriesResponse{
 		Term:    rn.persistent.CurrentTerm,
 		Success: true,
 	}
-
 }
