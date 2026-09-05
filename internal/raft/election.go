@@ -293,4 +293,29 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 		}
 	}
 
+	// 4. Handle log conflicts and append new entries (§5.3):
+	// If an existing entry conflicts with a new one (same index but different term),
+	// delete the existing entry and all that follow it (§5.3)
+
+	for i, newEntry := range req.Entries {
+		existingIndex := req.PrevLogIndex + 1 + uint64(i)
+		existing, err := rn.storage.GetEntry(existingIndex)
+		if err != nil || existing == nil {
+			// No existing entry at this index: append this entry and all subsequent entries
+			toAppend := req.Entries[i:]
+			if err := rn.storage.AppendEntries(toAppend); err != nil {
+				rn.logger.Info("failed to append entries to storage", "err", err)
+
+				return &pb.AppendEntriesResponse{
+					Term:    rn.persistent.CurrentTerm,
+					Success: false,
+				}
+				rn.persistent.Log = append(rn.persistent.Log, toAppend...)
+				break
+			}
+
+		}
+
+	}
+
 }
