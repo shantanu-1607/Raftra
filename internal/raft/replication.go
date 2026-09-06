@@ -2,6 +2,7 @@ package raft
 
 import (
 	"errors"
+	"time"
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
 	pb "github.com/shantanu-1607/raftra/proto"
@@ -39,6 +40,7 @@ func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 
 	// 1. Append entry to local persistent storage
 	if err := rn.storage.AppendEntries([]*pb.LogEntry{entry}); err != nil {
+		rn.mu.Unlock()
 		return 0, err
 	}
 
@@ -53,10 +55,29 @@ func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 		return newIndex, nil
 	}
 
-	// 3. Immediately replicate the new entry to all followers
+	// 3. Multi-node cluster: Register waiting channel for quorum confirmation
+	commitCh := make(chan error, 1)
+	rn.pendingCommits[newIndex] = commitCh
+
+	// 4. Trigger immediate replication to all followers
 	rn.broadcastAppendEntriesLocked()
 
-	return newIndex, nil
+	// 5. UNLOCK the mutex while waiting, so background network RPCs can run!
+	rn.mu.Unlock()
+
+	// 6. Block until majority confirms (or timeout)
+	select {
+	case err := <-commitCh:
+		return newIndex, err
+	case <-time.After(5 * time.Second):
+		rn.mu.Lock()
+		delete(rn.pendingCommits, newIndex)
+		rn.mu.Unlock()
+		return 0, ErrCommitTimeout
+	case <-rn.stopCh:
+		return 0, errors.New("node Stopped")
+
+	}
 
 }
 
