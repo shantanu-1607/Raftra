@@ -44,6 +44,9 @@ type RaftNode struct {
 	electionTimer  *time.Timer
 	heartbeatTimer *time.Timer
 
+	//client proposals & coordination
+	pendingCommits map[uint64]chan error // index-> commit notification channel
+
 	// Structured Logger
 	logger *slog.Logger
 }
@@ -82,11 +85,12 @@ func NewRaftNode(config Config, storage storage.StorageBackend, kv *kvstore.KVSt
 			CommitIndex: 0,
 			LastApplied: 0,
 		},
-		leader:  nil,
-		kvStore: kv,
-		storage: storage,
-		stopCh:  make(chan struct{}),
-		logger:  logger.With("node_id", config.NodeID),
+		leader:         nil,
+		kvStore:        kv,
+		storage:        storage,
+		stopCh:         make(chan struct{}),
+		pendingCommits: make(map[uint64]chan error),
+		logger:         logger.With("node_id", config.NodeID),
 	}
 	return rn, nil
 }
@@ -219,4 +223,9 @@ func (rn *RaftNode) LeaderID() string {
 		return rn.config.NodeID
 	}
 	return rn.leaderID
+}
+
+// Get retrieves a value from the committed state machine (thread-safe fast read).
+func (rn *RaftNode) Get(key string) (string, bool) {
+	return rn.kvStore.Get(key)
 }

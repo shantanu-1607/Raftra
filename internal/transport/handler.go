@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 
+	"github.com/shantanu-1607/raftra/internal/kvstore"
 	"github.com/shantanu-1607/raftra/internal/raft"
 	pb "github.com/shantanu-1607/raftra/proto"
 )
@@ -44,28 +45,98 @@ func (h *Handler) AppendEntries(ctx context.Context, req *pb.AppendEntriesReques
 
 // Set handles client write requests
 func (h *Handler) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, error) {
+	if !h.node.IsLeader() {
+		return &pb.SetResponse{
+			Success:    false,
+			Error:      "node is not the leader",
+			LeaderHint: h.node.LeaderID(),
+		}, nil
+	}
+
+	// 2. Encode the SET command
+	cmd := kvstore.Command{
+		Type:  kvstore.CmdSet,
+		Key:   req.Key,
+		Value: req.Value,
+	}
+	encoded, err := cmd.Encode()
+	if err != nil {
+		return &pb.SetResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// 3. Propose command to Raft log and wait for majority commit
+	_, err = h.node.ProposeCommand(encoded)
+	if err != nil {
+		return &pb.SetResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
 	return &pb.SetResponse{
-		Success:    false,
-		Error:      "cluster starting up", // Leader election logic will be wired in Phase 3
-		LeaderHint: "",
+		Success: true,
+		Error:   "",
 	}, nil
 }
 
-// Get handles client read requests
+// Get handles client read requests (served from leader's committed state)
 func (h *Handler) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	//reads are served from the leader
+	if !h.node.IsLeader() {
+		return &pb.GetResponse{
+			Value: "",
+			Found: false,
+			Error: "not leader",
+		}, nil
+	}
+
+	val, found := h.node.Get(req.Key)
 	return &pb.GetResponse{
-		Value: "",
-		Found: false,
-		Error: "cluster starting up (leader election begins in Phase 2)",
+		Value: val,
+		Found: found,
+		Error: "",
 	}, nil
 }
 
 // Delete handles client delete requests
 func (h *Handler) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
+	// 1. If not the leader, reject and provide leader hint
+	if !h.node.IsLeader() {
+		return &pb.DeleteResponse{
+			Success:    false,
+			Error:      "not leader",
+			LeaderHint: h.node.LeaderID(),
+		}, nil
+	}
+
+	// 2. Encode the DELETE command
+	cmd := kvstore.Command{
+		Type: kvstore.CmdDelete,
+		Key:  req.Key,
+	}
+	encoded, err := cmd.Encode()
+	if err != nil {
+		return &pb.DeleteResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// 3. Propose command to Raft log and wait for majority commit
+	_, err = h.node.ProposeCommand(encoded)
+	if err != nil {
+		return &pb.DeleteResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
 	return &pb.DeleteResponse{
-		Success:    false,
-		Error:      "cluster starting up (leader election begins in Phase 2)",
-		LeaderHint: "",
+		Success: true,
+		Error:   "",
 	}, nil
 }
 

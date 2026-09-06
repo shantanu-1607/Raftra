@@ -2,6 +2,7 @@ package raft
 
 import (
 	"errors"
+	"time"
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
 	pb "github.com/shantanu-1607/raftra/proto"
@@ -11,16 +12,19 @@ import (
 
 var ErrNotLeader = errors.New("node is not a leader")
 
+// ErrCommitTimeout is returned when a proposal times out waiting for majority consensus.
+var ErrCommitTimeout = errors.New("commit timeout: cluster failed to reach majority consensus")
+
 // ProposeCommand proposes a client command to the Raft cluster.
 // If this node is the leader, it appends the command to its local log and triggers replication.
 // Returns the allocated log index, or ErrNotLeader if this node is not the leader.
 
 func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 	rn.mu.Lock()
-	defer rn.mu.Unlock()
 
 	// Only the Leader can accept write proposals from clients
 	if rn.role != Leader {
+		rn.mu.Unlock()
 		return 0, ErrNotLeader
 	}
 
@@ -34,7 +38,9 @@ func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 		Command: cmd,
 	}
 
+	// 1. Append entry to local persistent storage
 	if err := rn.storage.AppendEntries([]*pb.LogEntry{entry}); err != nil {
+		rn.mu.Unlock()
 		return 0, err
 	}
 
@@ -49,10 +55,29 @@ func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 		return newIndex, nil
 	}
 
-	// 3. Immediately replicate the new entry to all followers
+	// 3. Multi-node cluster: Register waiting channel for quorum confirmation
+	commitCh := make(chan error, 1)
+	rn.pendingCommits[newIndex] = commitCh
+
+	// 4. Trigger immediate replication to all followers
 	rn.broadcastAppendEntriesLocked()
 
-	return newIndex, nil
+	// 5. UNLOCK the mutex while waiting, so background network RPCs can run!
+	rn.mu.Unlock()
+
+	// 6. Block until majority confirms (or timeout)
+	select {
+	case err := <-commitCh:
+		return newIndex, err
+	case <-time.After(5 * time.Second):
+		rn.mu.Lock()
+		delete(rn.pendingCommits, newIndex)
+		rn.mu.Unlock()
+		return 0, ErrCommitTimeout
+	case <-rn.stopCh:
+		return 0, errors.New("node Stopped")
+
+	}
 
 }
 
@@ -209,6 +234,12 @@ func (rn *RaftNode) applyCommittedEntriesLocked() {
 		}
 
 		rn.kvStore.Apply(cmd)
+
+		// Wake up any client waiting in the waiting room for this index!
+		if ch, exists := rn.pendingCommits[rn.volatile.LastApplied]; exists {
+			ch <- nil
+			delete(rn.pendingCommits, rn.volatile.LastApplied)
+		}
 
 		rn.logger.Info("applied command to state machine",
 			"index", rn.volatile.LastApplied,
