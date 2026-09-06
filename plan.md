@@ -707,108 +707,46 @@ for i, entry := range req.Entries {
 
 ---
 
-### Phase 3C — Commitment & Application (Day 6, Morning)
+### Phase 3C — Client API, Synchronous Quorum & HTTP Gateway (Day 6, Morning)
 
-#### 29. Commit Index Advancement (Leader) — [`internal/raft/commitment.go`](file:///Users/shantanusingh/Desktop/raftra/internal/raft/commitment.go)
-
-Per §5.3 and §5.4.2:
-
-```
-advanceCommitIndex():
-    For N = commitIndex + 1 to lastLogIndex:
-        If log[N].term == currentTerm:  // CRITICAL: only commit current-term entries
-            count = 1  // self
-            For each peer:
-                If matchIndex[peer] >= N:
-                    count++
-            If count > len(cluster) / 2:
-                commitIndex = N
-
-    // Apply newly committed entries
-    while lastApplied < commitIndex:
-        lastApplied++
-        entry = log[lastApplied]
-        kvStore.Apply(entry)
-```
-
-> [!WARNING]
-> **§5.4.2 is critical:** A leader MUST NOT commit entries from previous terms by counting replicas. It can only commit an entry from its own term, which indirectly commits all prior entries. Violating this breaks the safety guarantee.
-
-#### 30. Client-Facing gRPC Handlers
+#### 29. Synchronous Quorum Commitment (`pendingCommits`)
+When a client proposes a write, the API must not return until the entry is committed by a cluster majority and applied to the state machine.
 
 ```go
-// Set handler
-func (h *Handler) Set(ctx context.Context, req *SetRequest) (*SetResponse, error) {
-    if !h.raftNode.IsLeader() {
-        return &SetResponse{
-            Success:    false,
-            Error:      "not leader",
-            LeaderHint: h.raftNode.LeaderID(),
-        }, nil
-    }
-    cmd := Command{Type: CmdSet, Key: req.Key, Value: req.Value}
-    encoded, _ := EncodeCommand(cmd)
-    err := h.raftNode.ProposeCommand(encoded)
-    if err != nil {
-        return &SetResponse{Success: false, Error: err.Error()}, nil
-    }
-    return &SetResponse{Success: true}, nil
+// In RaftNode:
+pendingCommits map[uint64]chan error
+
+func (rn *RaftNode) ProposeCommand(ctx context.Context, cmd []byte) error {
+    // 1. Check leadership
+    // 2. Append to local log at index N
+    // 3. Register commitCh := make(chan error, 1) in pendingCommits[N]
+    // 4. Trigger replication broadcast
+    // 5. Block on select with commitCh, context deadline, or 5s timeout
 }
+
+// In applyCommittedEntriesLocked():
+// Whenever entry N is applied to KVStore, notify and close pendingCommits[N]
 ```
 
-**ProposeCommand** must block until the entry is committed (or timeout/leadership change). Implementation:
+#### 30. Client-Facing gRPC Handlers — [`internal/transport/handler.go`](file:///Users/shantanusingh/Desktop/raftra/internal/transport/handler.go)
+- `Set(ctx, req)`: Proposes `CmdSet` command. Blocks until quorum commit. Returns `LeaderHint` if follower.
+- `Get(ctx, req)`: Serves fast reads directly from the leader's committed `kvStore`.
+- `Delete(ctx, req)`: Proposes `CmdDelete` command. Blocks until quorum commit.
 
-```go
-func (rn *RaftNode) ProposeCommand(cmd []byte) error {
-    rn.mu.Lock()
-    if rn.role != Leader {
-        rn.mu.Unlock()
-        return ErrNotLeader
-    }
-    entry := LogEntry{
-        Index:   rn.lastLogIndex() + 1,
-        Term:    rn.persistent.CurrentTerm,
-        Command: cmd,
-    }
-    rn.persistent.Log = append(rn.persistent.Log, entry)
-    rn.storage.AppendEntries([]LogEntry{entry})
+#### 31. RESTful HTTP Gateway — [`internal/transport/http_server.go`](file:///Users/shantanusingh/Desktop/raftra/internal/transport/http_server.go)
+Exposes an HTTP/JSON REST API on each node alongside gRPC for easy `curl` and browser access:
 
-    // Create a channel to wait for commit
-    commitCh := make(chan error, 1)
-    rn.pendingCommits[entry.Index] = commitCh
-    rn.mu.Unlock()
+| Method | Endpoint | Database Action | Semantics |
+| :--- | :--- | :--- | :--- |
+| **`GET`** | `/api/v1/kv/{key}` | **Read** | Returns 200 with value, or 404 if not found. |
+| **`PUT`** | `/api/v1/kv/{key}` | **Upsert (`SET`)** | Idempotent write: creates or replaces value. Returns 200 OK. |
+| **`POST`** | `/api/v1/kv/{key}` | **Create (`SETNX`)** | **Set-If-Not-Exists**: Returns 201 Created if new, or 409 Conflict if key already exists (distributed lock semantics). |
+| **`DELETE`** | `/api/v1/kv/{key}` | **Delete** | Removes key. Returns 200 OK. |
+| **`GET`** | `/status` | **Node Status** | Returns JSON with role, term, leaderID, commitIndex. |
 
-    // Trigger immediate replication
-    rn.triggerReplication()
-
-    // Wait for commit or timeout
-    select {
-    case err := <-commitCh:
-        return err
-    case <-time.After(5 * time.Second):
-        return ErrCommitTimeout
-    }
-}
-```
-
-#### 31. GET Handling
-
-- GET does **not** need to go through the Raft log (it's a read-only operation).
-- For simplicity and correctness, serve GETs from the leader's local KV state.
-- The leader should verify it's still the leader (hasn't been partitioned) before serving.
-
-```go
-func (h *Handler) Get(ctx context.Context, req *GetRequest) (*GetResponse, error) {
-    if !h.raftNode.IsLeader() {
-        return &GetResponse{Error: "not leader", ...}, nil
-    }
-    value, found := h.raftNode.kvStore.Get(req.Key)
-    return &GetResponse{Value: value, Found: found}, nil
-}
-```
-
-> [!NOTE]
-> A fully linearizable read would require a read-index protocol or a no-op commit. For this project, serving reads from the leader's committed state is sufficient and correct enough for interview discussion.
+> [!TIP]
+> **HTTP 307 Automatic Redirects:**
+> If a client sends a write request (`PUT`, `POST`, `DELETE`) to a Follower node, the HTTP server responds with **`HTTP 307 Temporary Redirect`** pointing to the Leader's HTTP address. Clients like `curl -L` automatically follow the redirect seamlessly!
 
 ---
 
