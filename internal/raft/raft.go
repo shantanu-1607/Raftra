@@ -44,6 +44,9 @@ type RaftNode struct {
 	electionTimer  *time.Timer
 	heartbeatTimer *time.Timer
 
+	//client proposals & coordination
+	pendingCommits map[uint64]chan error // index-> commit notification channel
+
 	// Structured Logger
 	logger *slog.Logger
 }
