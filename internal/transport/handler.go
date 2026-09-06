@@ -82,12 +82,22 @@ func (h *Handler) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse,
 	}, nil
 }
 
-// Get handles client read requests
+// Get handles client read requests (served from leader's committed state)
 func (h *Handler) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
+	//reads are served from the leader
+	if !h.node.IsLeader() {
+		return &pb.GetResponse{
+			Value: "",
+			Found: false,
+			Error: "not leader",
+		}, nil
+	}
+
+	val, found := h.node.Get(req.Key)
 	return &pb.GetResponse{
-		Value: "",
-		Found: false,
-		Error: "cluster starting up (leader election begins in Phase 2)",
+		Value: val,
+		Found: found,
+		Error: "",
 	}, nil
 }
 
