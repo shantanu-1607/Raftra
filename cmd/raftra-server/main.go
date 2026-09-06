@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -19,8 +20,10 @@ import (
 func main() {
 	// 1. Define command line flags
 	nodeID := flag.String("id", "node1", "Unique node ID")
-	port := flag.Int("port", 50051, "port to listen on")
+	port := flag.Int("port", 50051, "gRPC port to listen on")
+	httpPort := flag.Int("http-port", 8001, "HTTP REST gateway port to listen on")
 	peerFlag := flag.String("peers", "", "comma-separated list of peer ID:address (e.g. node2:localhost:50052,node3:localhost:50053)")
+	httpPeersFlag := flag.String("http-peers", "", "comma-separated list of peer ID:http-address (e.g. node1:http://localhost:8001,node2:http://localhost:8002)")
 	flag.Parse()
 
 	// 2. Setup structured logging
@@ -28,9 +31,13 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 
-	logger.Info("starting raftra node", "id", *nodeID, "port", *port)
+	logger.Info("starting raftra node",
+		"id", *nodeID,
+		"grpc_port", *port,
+		"http_port", *httpPort,
+	)
 
-	// 3. Parse peer list string into Go structs and map
+	// 3. Parse gRPC peer list string
 	var peers []raft.PeerConfig
 	peerAddressMap := make(map[string]string)
 
@@ -50,11 +57,23 @@ func main() {
 		}
 	}
 
-	// 4. Initialize storage and KV state machine
+	// 4. Parse HTTP peer list string (for 307 redirects)
+	peerHTTPMap := make(map[string]string)
+	if *httpPeersFlag != "" {
+		httpEntries := strings.Split(*httpPeersFlag, ",")
+		for _, entry := range httpEntries {
+			parts := strings.SplitN(entry, ":", 2)
+			if len(parts) == 2 {
+				peerHTTPMap[parts[0]] = parts[1]
+			}
+		}
+	}
+
+	// 5. Initialize storage and KV state machine
 	store := storage.NewMemoryStore()
 	kv := kvstore.NewKVStore()
 
-	// 5. Initialize Raft configuration & node
+	// 6. Initialize Raft configuration & node
 	config := raft.DefaultConfig(*nodeID, peers)
 	raftNode, err := raft.NewRaftNode(config, store, kv, logger)
 	if err != nil {
@@ -62,7 +81,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 6. Initialize outbound gRPC transport to peers
+	// 7. Initialize outbound gRPC transport to peers
 	trans, err := transport.NewGRPCTransport(peerAddressMap, 100*time.Millisecond)
 	if err != nil {
 		logger.Error("failed to create outbound transport", "error", err)
@@ -70,21 +89,28 @@ func main() {
 	}
 	raftNode.SetTransport(trans)
 
-	// 7. Start the inbound gRPC network server
+	// 8. Start the inbound gRPC network server
 	serverAddr := fmt.Sprintf("localhost:%d", *port)
 	server, err := transport.NewServer(serverAddr, raftNode, logger)
 	if err != nil {
 		logger.Error("failed to create gRPC server", "error", err)
 		os.Exit(1)
 	}
-
 	server.Start()
 
-	// 8. Start the Raft consensus engine event loop!
-	raftNode.Start()
-	logger.Info("raft node started and running as follower", "id", *nodeID, "role", raftNode.Role().String())
+	// 9. Start the HTTP REST gateway
+	httpServerAddr := fmt.Sprintf("localhost:%d", *httpPort)
+	httpServer := transport.NewHTTPServer(raftNode, httpServerAddr, peerHTTPMap, logger)
+	if err := httpServer.Start(); err != nil {
+		logger.Error("failed to start HTTP server", "error", err)
+		os.Exit(1)
+	}
 
-	// 9. Wait for OS termination signal (Ctrl+C / SIGTERM)
+	// 10. Start the Raft consensus engine event loop!
+	raftNode.Start()
+	logger.Info("raft node running", "id", *nodeID, "role", raftNode.Role().String())
+
+	// 11. Wait for OS termination signal (Ctrl+C / SIGTERM)
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
@@ -92,6 +118,11 @@ func main() {
 	logger.Info("shutting down node", "id", *nodeID)
 	raftNode.Stop()
 	server.Stop()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = httpServer.Stop(shutdownCtx)
+
 	_ = trans.Close()
 	logger.Info("node stopped gracefully", "id", *nodeID)
 }
