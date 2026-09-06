@@ -235,6 +235,12 @@ func (rn *RaftNode) applyCommittedEntriesLocked() {
 
 		rn.kvStore.Apply(cmd)
 
+		// Wake up any client waiting in the waiting room for this index!
+		if ch, exists := rn.pendingCommits[rn.volatile.LastApplied]; exists {
+			ch <- nil
+			delete(rn.pendingCommits, rn.volatile.LastApplied)
+		}
+
 		rn.logger.Info("applied command to state machine",
 			"index", rn.volatile.LastApplied,
 			"key", cmd.Key,
