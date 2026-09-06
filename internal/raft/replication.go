@@ -11,16 +11,19 @@ import (
 
 var ErrNotLeader = errors.New("node is not a leader")
 
+// ErrCommitTimeout is returned when a proposal times out waiting for majority consensus.
+var ErrCommitTimeout = errors.New("commit timeout: cluster failed to reach majority consensus")
+
 // ProposeCommand proposes a client command to the Raft cluster.
 // If this node is the leader, it appends the command to its local log and triggers replication.
 // Returns the allocated log index, or ErrNotLeader if this node is not the leader.
 
 func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 	rn.mu.Lock()
-	defer rn.mu.Unlock()
 
 	// Only the Leader can accept write proposals from clients
 	if rn.role != Leader {
+		rn.mu.Unlock()
 		return 0, ErrNotLeader
 	}
 
@@ -34,6 +37,7 @@ func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 		Command: cmd,
 	}
 
+	// 1. Append entry to local persistent storage
 	if err := rn.storage.AppendEntries([]*pb.LogEntry{entry}); err != nil {
 		return 0, err
 	}
