@@ -103,10 +103,40 @@ func (h *Handler) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse,
 
 // Delete handles client delete requests
 func (h *Handler) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
+	// 1. If not the leader, reject and provide leader hint
+	if !h.node.IsLeader() {
+		return &pb.DeleteResponse{
+			Success:    false,
+			Error:      "not leader",
+			LeaderHint: h.node.LeaderID(),
+		}, nil
+	}
+
+	// 2. Encode the DELETE command
+	cmd := kvstore.Command{
+		Type: kvstore.CmdDelete,
+		Key:  req.Key,
+	}
+	encoded, err := cmd.Encode()
+	if err != nil {
+		return &pb.DeleteResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// 3. Propose command to Raft log and wait for majority commit
+	_, err = h.node.ProposeCommand(encoded)
+	if err != nil {
+		return &pb.DeleteResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
 	return &pb.DeleteResponse{
-		Success:    false,
-		Error:      "cluster starting up (leader election begins in Phase 2)",
-		LeaderHint: "",
+		Success: true,
+		Error:   "",
 	}, nil
 }
 
