@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 
+	"github.com/shantanu-1607/raftra/internal/kvstore"
 	"github.com/shantanu-1607/raftra/internal/raft"
 	pb "github.com/shantanu-1607/raftra/proto"
 )
@@ -44,10 +45,40 @@ func (h *Handler) AppendEntries(ctx context.Context, req *pb.AppendEntriesReques
 
 // Set handles client write requests
 func (h *Handler) Set(ctx context.Context, req *pb.SetRequest) (*pb.SetResponse, error) {
+	if !h.node.IsLeader() {
+		return &pb.SetResponse{
+			Success:    false,
+			Error:      "node is not the leader",
+			LeaderHint: h.node.LeaderID(),
+		}, nil
+	}
+
+	// 2. Encode the SET command
+	cmd := kvstore.Command{
+		Type:  kvstore.CmdSet,
+		Key:   req.Key,
+		Value: req.Value,
+	}
+	encoded, err := cmd.Encode()
+	if err != nil {
+		return &pb.SetResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	// 3. Propose command to Raft log and wait for majority commit
+	_, err = h.node.ProposeCommand(encoded)
+	if err != nil {
+		return &pb.SetResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
 	return &pb.SetResponse{
-		Success:    false,
-		Error:      "cluster starting up", // Leader election logic will be wired in Phase 3
-		LeaderHint: "",
+		Success: true,
+		Error:   "",
 	}, nil
 }
 
