@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/shantanu-1607/raftra/internal/kvstore"
 	pb "github.com/shantanu-1607/raftra/proto"
 	"google.golang.org/protobuf/proto"
 )
@@ -91,4 +92,35 @@ func (nt *networkTransport) SendAppendEntries(peerID string, req *pb.AppendEntri
 }
 func (nt *networkTransport) Close() error {
 	return nil
+}
+
+// ============================================================================
+// Test Helpers: Quick ways to set up a 3-node cluster and commands
+// ============================================================================
+// createThreeNodeCluster wires up 3 nodes into our virtual network
+func createThreeNodeCluster() (*clusterNetwork, *RaftNode, *RaftNode, *RaftNode) {
+	net := newClusterNetwork()
+	node1, _ := createTestNode("node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}})
+	node2, _ := createTestNode("node2", []PeerConfig{{ID: "node1"}, {ID: "node3"}})
+	node3, _ := createTestNode("node3", []PeerConfig{{ID: "node1"}, {ID: "node2"}})
+	net.registerNode(node1)
+	net.registerNode(node2)
+	net.registerNode(node3)
+	return net, node1, node2, node3
+}
+
+// forceLeader promotes a node to Leader immediately without waiting for election timers
+func forceLeader(node *RaftNode, term uint64) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	node.role = Candidate
+	node.persistent.CurrentTerm = term
+	node.becomeLeader()
+}
+
+// encodeSet serializes a SET command into bytes for ProposeCommand
+func encodeSet(key, val string) []byte {
+	cmd := kvstore.Command{Type: kvstore.CmdSet, Key: key, Value: val}
+	b, _ := cmd.Encode()
+	return b
 }
