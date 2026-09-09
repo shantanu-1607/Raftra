@@ -124,3 +124,10 @@ func encodeSet(key, val string) []byte {
 	b, _ := cmd.Encode()
 	return b
 }
+
+// encodeDelete serializes a DELETE command into bytes for ProposeCommand
+func encodeDelete(key string) []byte {
+	cmd := kvstore.Command{Type: kvstore.CmdDelete, Key: key}
+	b, _ := cmd.Encode()
+	return b
+}
