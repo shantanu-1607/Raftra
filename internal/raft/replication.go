@@ -52,6 +52,7 @@ func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 	if len(rn.peers) == 0 {
 		rn.volatile.CommitIndex = newIndex
 		rn.applyCommittedEntriesLocked()
+		rn.mu.Unlock()
 		return newIndex, nil
 	}
 
