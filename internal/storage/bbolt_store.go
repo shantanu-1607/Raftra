@@ -91,3 +91,27 @@ func NewBboltStore(dbPath string) (*BboltStore, error) {
 func (b *BboltStore) Close() error {
 	return b.db.Close()
 }
+
+
+
+// SaveTerm atomically persists the current term to disk.
+func (b *BboltStore) SaveTerm(term uint64) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMeta)
+		return bucket.Put(keyTerm,uint64ToBytes(term))
+	})
+}
+
+// LoadTerm reads the persisted term from disk. Returns 0 if none has been saved.
+func(b *BboltStore) LoadTerm() (uint64, err) {
+	var term uint64
+	err := b.db.View(func(tx *bbolt.Tx) error) {
+		bucket := tx.Bucket(bucketMeta)
+		val := Bucket.Get(keyTerm)
+		if val != nil {
+			term = bytesToUint64(val)
+		}
+		return nil
+	}
+	return term, err
+}
