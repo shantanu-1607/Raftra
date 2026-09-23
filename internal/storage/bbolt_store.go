@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	pb "github.com/shantanu-1607/raftra/proto"
 	"go.etcd.io/bbolt"
@@ -38,10 +39,12 @@ type BboltStore struct {
 	db *bbolt.DB
 }
 
+var _ StorageBackend = (*BboltStore)(nil)
+
 // NewBboltStore opens (or creates) a bbolt database file and initializes the buckets.
 func NewBboltStore(dbPath string) (*BboltStore, error) {
 	// Open the database file with 1-second lock timeout
-	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{Timeout: 1 * time.second})
+	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{Timeout: 1 * time.Second})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open bbolt db at %s: %w", dbPath, err)
 	}
@@ -51,22 +54,21 @@ func NewBboltStore(dbPath string) (*BboltStore, error) {
 	// Initialize buckets and sentinel entry
 	err = db.Update(func(tx *bbolt.Tx) error {
 		// 1. Create metadata bucket
-		if _, err := tx.CreateBucketIfNotExist(bucketMeta); err != nil {
+		if _, err := tx.CreateBucketIfNotExists(bucketMeta); err != nil {
 			return fmt.Errorf("failed to create meta bucket: %w", err)
 		}
 
 		// 2. Create log bucket
-		logBucket, err := tx.CreateBucketIfNotExist(bucketLog)
+		logBucket, err := tx.CreateBucketIfNotExists(bucketLog)
 		if err != nil {
 			return fmt.Errorf("failed to create log bucket: %w", err)
 		}
 
 		// 3. Ensure sentinel entry (index 0, term 0) exists
 		// Raft log is 1-indexed. Index 0 is a dummy sentinel entry.
-
 		if logBucket.Get(uint64ToBytes(0)) == nil {
-			sentinal := &pb.LogEntry{Index: 0, Term: 0}
-			data, err := proto.Marshal(sentinal)
+			sentinel := &pb.LogEntry{Index: 0, Term: 0}
+			data, err := proto.Marshal(sentinel)
 			if err != nil {
 				return fmt.Errorf("failed to marshal sentinel entry: %w", err)
 			}
@@ -98,7 +100,7 @@ func (b *BboltStore) Close() error {
 func (b *BboltStore) SaveTerm(term uint64) error {
 	return b.db.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketMeta)
-		return bucket.Put(keyTerm,uint64ToBytes(term))
+		return bucket.Put(keyTerm, uint64ToBytes(term))
 	})
 }
 
@@ -148,11 +150,11 @@ func (b *BboltStore) AppendEntries(entries []*pb.LogEntry) error {
 	return b.db.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketLog)
 		for _, entry := range entries {
-			data , err := proto.Marshal(entry)
+			data, err := proto.Marshal(entry)
 			if err != nil {
-				return fmt.Errorf("failed to marshal log entry %d: %w", entry.Index,err)
+				return fmt.Errorf("failed to marshal log entry %d: %w", entry.Index, err)
 			}
-			if err := bucket.Put(uint64ToBytes(entry.Index),data): err != nil {
+			if err := bucket.Put(uint64ToBytes(entry.Index), data); err != nil {
 				return fmt.Errorf("failed to put entry index %d: %w", entry.Index, err)
 			}
 		}
@@ -171,11 +173,10 @@ func (b *BboltStore) GetEntry(index uint64) (*pb.LogEntry, error) {
 			return fmt.Errorf("entry index %d not found", index)
 		}
 		entry = &pb.LogEntry{}
-		if err := proto.Unmarshal(val, entry) ;err != nil {
+		if err := proto.Unmarshal(val, entry); err != nil {
 			return fmt.Errorf("failed to unmarshal entry index %d: %w", index, err)
-
 		}
-		retur nil
+		return nil
 	})
 
 	return entry, err
