@@ -200,3 +200,47 @@ func TestBboltStore_TruncateFrom(t *testing.T) {
 		t.Fatalf("expected entry 5 to be deleted, but it was found")
 	}
 }
+
+func TestBboltStore_DurabilityAfterClose(t *testing.T) {
+	store, dbPath := createTestBboltStore(t)
+
+	// 1. Write state to disk
+	_ = store.SaveTerm(10)
+	_ = store.SaveVotedFor("node-3")
+	_ = store.AppendEntries([]*pb.LogEntry{
+		{Index: 1, Term: 10, Command: []byte("durable_cmd")},
+	})
+
+	// 2. SIMULATE CRASH: Close the database completely!
+	if err := store.Close(); err != nil {
+		t.Fatalf("failed to close store: %v", err)
+	}
+
+	// 3. SIMULATE REBOOT: Open the exact same file path again!
+	reopenedStore, err := NewBboltStore(dbPath)
+	if err != nil {
+		t.Fatalf("failed to reopen bbolt store: %v", err)
+	}
+	defer reopenedStore.Close()
+
+	// 4. Verify term survived
+	term, err := reopenedStore.LoadTerm()
+	if err != nil || term != 10 {
+		t.Fatalf("expected term 10 after restart, got %d (err: %v)", term, err)
+	}
+
+	// 5. Verify vote survived
+	vote, err := reopenedStore.LoadVotedFor()
+	if err != nil || vote != "node-3" {
+		t.Fatalf("expected vote 'node-3' after restart, got %q (err: %v)", vote, err)
+	}
+
+	// 6. Verify log entry survived
+	entry, err := reopenedStore.GetEntry(1)
+	if err != nil {
+		t.Fatalf("failed to read entry 1 after restart: %v", err)
+	}
+	if entry.Term != 10 || string(entry.Command) != "durable_cmd" {
+		t.Fatalf("corrupted entry after restart: %+v", entry)
+	}
+}
