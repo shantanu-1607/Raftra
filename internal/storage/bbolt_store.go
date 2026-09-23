@@ -1,0 +1,284 @@
+package storage
+
+import (
+	"encoding/binary"
+	"fmt"
+	"time"
+
+	pb "github.com/shantanu-1607/raftra/proto"
+	"go.etcd.io/bbolt"
+	"google.golang.org/protobuf/proto"
+)
+
+var (
+	bucketMeta = []byte("meta")
+	bucketLog  = []byte("log")
+
+	keyTerm     = []byte("current_term")
+	keyVotedFor = []byte("voted_for")
+)
+
+// uint64ToBytes converts a uint64 into an 8-byte big-endian slice.
+// Big-endian ensures bbolt stores and sorts log indices in ascending numeric order.
+func uint64ToBytes(n uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, n)
+	return b
+}
+
+// bytesToUint64 decodes an 8-byte big-endian slice back into uint64.
+func bytesToUint64(b []byte) uint64 {
+	if len(b) < 8 {
+		return 0
+	}
+	return binary.BigEndian.Uint64(b)
+}
+
+// BboltStore implements the StorageBackend interface using an embedded bbolt database.
+type BboltStore struct {
+	db *bbolt.DB
+}
+
+var _ StorageBackend = (*BboltStore)(nil)
+
+// NewBboltStore opens (or creates) a bbolt database file and initializes the buckets.
+func NewBboltStore(dbPath string) (*BboltStore, error) {
+	// Open the database file with 1-second lock timeout
+	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open bbolt db at %s: %w", dbPath, err)
+	}
+
+	store := &BboltStore{db: db}
+
+	// Initialize buckets and sentinel entry
+	err = db.Update(func(tx *bbolt.Tx) error {
+		// 1. Create metadata bucket
+		if _, err := tx.CreateBucketIfNotExists(bucketMeta); err != nil {
+			return fmt.Errorf("failed to create meta bucket: %w", err)
+		}
+
+		// 2. Create log bucket
+		logBucket, err := tx.CreateBucketIfNotExists(bucketLog)
+		if err != nil {
+			return fmt.Errorf("failed to create log bucket: %w", err)
+		}
+
+		// 3. Ensure sentinel entry (index 0, term 0) exists
+		// Raft log is 1-indexed. Index 0 is a dummy sentinel entry.
+		if logBucket.Get(uint64ToBytes(0)) == nil {
+			sentinel := &pb.LogEntry{Index: 0, Term: 0}
+			data, err := proto.Marshal(sentinel)
+			if err != nil {
+				return fmt.Errorf("failed to marshal sentinel entry: %w", err)
+			}
+			if err := logBucket.Put(uint64ToBytes(0), data); err != nil {
+				return fmt.Errorf("failed to put sentinel: %w", err)
+			}
+		}
+		return nil
+
+	})
+
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return store, nil
+
+}
+
+// Close closes the underlying bbolt database.
+func (b *BboltStore) Close() error {
+	return b.db.Close()
+}
+
+
+
+// SaveTerm atomically persists the current term to disk.
+func (b *BboltStore) SaveTerm(term uint64) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMeta)
+		return bucket.Put(keyTerm, uint64ToBytes(term))
+	})
+}
+
+// LoadTerm reads the persisted term from disk. Returns 0 if none has been saved.
+func (b *BboltStore) LoadTerm() (uint64, error) {
+	var term uint64
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMeta)
+		val := bucket.Get(keyTerm)
+		if val != nil {
+			term = bytesToUint64(val)
+		}
+		return nil
+	})
+	return term, err}
+
+
+// SaveVotedFor atomically persists the candidate ID we voted for in this term.
+func (b *BboltStore) SaveVotedFor(candidateID string) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMeta)
+		return bucket.Put(keyVotedFor, []byte(candidateID))
+	})
+}
+
+// LoadVotedFor reads the candidate ID we voted for. Returns "" if none has been saved.
+func (b *BboltStore) LoadVotedFor() (string, error) {
+	var votedFor string
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMeta)
+		val := bucket.Get(keyVotedFor)
+		if val != nil {
+			votedFor = string(val)
+		}
+		return nil
+	})
+	return votedFor, err
+}
+
+
+// AppendEntries atomically saves one or more log entries to disk.
+func (b *BboltStore) AppendEntries(entries []*pb.LogEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		for _, entry := range entries {
+			data, err := proto.Marshal(entry)
+			if err != nil {
+				return fmt.Errorf("failed to marshal log entry %d: %w", entry.Index, err)
+			}
+			if err := bucket.Put(uint64ToBytes(entry.Index), data); err != nil {
+				return fmt.Errorf("failed to put entry index %d: %w", entry.Index, err)
+			}
+		}
+		return nil
+	})
+}
+
+
+// GetEntry retrieves a single log entry by its index.
+func (b *BboltStore) GetEntry(index uint64) (*pb.LogEntry, error) {
+	var entry *pb.LogEntry
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		val := bucket.Get(uint64ToBytes(index))
+		if val == nil {
+			return fmt.Errorf("entry index %d not found", index)
+		}
+		entry = &pb.LogEntry{}
+		if err := proto.Unmarshal(val, entry); err != nil {
+			return fmt.Errorf("failed to unmarshal entry index %d: %w", index, err)
+		}
+		return nil
+	})
+
+	return entry, err
+	
+}
+
+
+// GetEntriesFrom returns all log entries from startIndex onwards (inclusive).
+func (b *BboltStore) GetEntriesFrom(startIndex uint64) ([]*pb.LogEntry, error) {
+	var entries []*pb.LogEntry
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+
+		// Seek directly to startIndex
+		for k, v := c.Seek(uint64ToBytes(startIndex)); k != nil; k, v = c.Next() {
+			entry := &pb.LogEntry{}
+			if err := proto.Unmarshal(v, entry); err != nil {
+				return fmt.Errorf("failed to unmarshal entry: %w", err)
+			}
+			entries = append(entries, entry)
+		}
+		return nil
+	})
+	return entries, err
+}
+
+
+// TruncateFrom deletes all log entries from index to the end of the log.
+// This is used during log conflict resolution when a follower's log diverges from the leader's.
+func (b *BboltStore) TruncateFrom(index uint64) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+
+		// First, collect all keys that need to be deleted
+		var keysToDelete [][]byte
+		for k, _ := c.Seek(uint64ToBytes(index)); k != nil; k, _ = c.Next() {
+			keyCopy := make([]byte, len(k))
+			copy(keyCopy, k)
+			keysToDelete = append(keysToDelete, keyCopy)
+		}
+
+		// Delete collected keys
+		for _, k := range keysToDelete {
+			if err := bucket.Delete(k); err != nil {
+				return fmt.Errorf("failed to delete key %v: %w", k, err)
+			}
+		}
+		return nil
+	})
+}
+
+// LastIndex returns the highest log index stored in the database.
+func (b *BboltStore) LastIndex() (uint64, error) {
+	var lastIndex uint64
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+		k, _ := c.Last()
+		if k != nil {
+			lastIndex = bytesToUint64(k)
+		}
+		return nil
+	})
+	return lastIndex, err
+}
+
+// LastTerm returns the term of the highest log entry stored in the database.
+func (b *BboltStore) LastTerm() (uint64, error) {
+	var lastTerm uint64
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+		k, v := c.Last()
+		if k == nil || v == nil {
+			return nil
+		}
+		entry := &pb.LogEntry{}
+		if err := proto.Unmarshal(v, entry); err != nil {
+			return fmt.Errorf("failed to unmarshal last entry: %w", err)
+		}
+		lastTerm = entry.Term
+		return nil
+	})
+	return lastTerm, err
+}
+
+// LoadAllEntries returns all log entries from the database, starting with sentinel index 0.
+func (b *BboltStore) LoadAllEntries() ([]*pb.LogEntry, error) {
+	var entries []*pb.LogEntry
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			entry := &pb.LogEntry{}
+			if err := proto.Unmarshal(v, entry); err != nil {
+				return fmt.Errorf("failed to unmarshal entry: %w", err)
+			}
+			entries = append(entries, entry)
+		}
+		return nil
+	})
+	return entries, err
+}
