@@ -161,3 +161,42 @@ func TestBboltStore_LogEntries(t *testing.T) {
 		t.Fatalf("unexpected ordering in LoadAllEntries")
 	}
 }
+
+func TestBboltStore_TruncateFrom(t *testing.T) {
+	store, _ := createTestBboltStore(t)
+	defer store.Close()
+
+	// Append entries 1, 2, 3, 4, 5
+	entries := []*pb.LogEntry{
+		{Index: 1, Term: 1},
+		{Index: 2, Term: 1},
+		{Index: 3, Term: 1},
+		{Index: 4, Term: 1},
+		{Index: 5, Term: 1},
+	}
+	_ = store.AppendEntries(entries)
+
+	// Truncate from index 4 onwards (should delete 4 and 5)
+	if err := store.TruncateFrom(4); err != nil {
+		t.Fatalf("failed to truncate from index 4: %v", err)
+	}
+
+	// LastIndex should now be 3
+	lastIdx, _ := store.LastIndex()
+	if lastIdx != 3 {
+		t.Fatalf("expected lastIndex 3 after truncation, got %d", lastIdx)
+	}
+
+	// Entry 3 must still exist
+	if _, err := store.GetEntry(3); err != nil {
+		t.Fatalf("expected entry 3 to exist, got err: %v", err)
+	}
+
+	// Entries 4 and 5 must be gone
+	if _, err := store.GetEntry(4); err == nil {
+		t.Fatalf("expected entry 4 to be deleted, but it was found")
+	}
+	if _, err := store.GetEntry(5); err == nil {
+		t.Fatalf("expected entry 5 to be deleted, but it was found")
+	}
+}
