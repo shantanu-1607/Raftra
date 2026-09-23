@@ -103,16 +103,16 @@ func (b *BboltStore) SaveTerm(term uint64) error {
 }
 
 // LoadTerm reads the persisted term from disk. Returns 0 if none has been saved.
-func(b *BboltStore) LoadTerm() (uint64, err) {
+func (b *BboltStore) LoadTerm() (uint64, error) {
 	var term uint64
-	err := b.db.View(func(tx *bbolt.Tx) error) {
+	err := b.db.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(bucketMeta)
-		val := Bucket.Get(keyTerm)
+		val := bucket.Get(keyTerm)
 		if val != nil {
 			term = bytesToUint64(val)
 		}
 		return nil
-	}
+	})
 	return term, err
 }
 
