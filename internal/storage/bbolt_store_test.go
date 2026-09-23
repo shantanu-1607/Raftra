@@ -3,6 +3,8 @@ package storage
 import (
 	"path/filepath"
 	"testing"
+
+	pb "github.com/shantanu-1607/raftra/proto"
 )
 
 // helper to create a temporary bbolt store for testing.
@@ -92,5 +94,70 @@ func TestBboltStore_TermAndVote(t *testing.T) {
 	votedFor, _ = store.LoadVotedFor()
 	if term != 6 || votedFor != "" {
 		t.Fatalf("expected term 6 and empty vote, got term %d, vote %q", term, votedFor)
+	}
+}
+
+func TestBboltStore_LogEntries(t *testing.T) {
+	store, _ := createTestBboltStore(t)
+	defer store.Close()
+
+	// Create 3 test log entries
+	entries := []*pb.LogEntry{
+		{Index: 1, Term: 1, Command: []byte("cmd1")},
+		{Index: 2, Term: 1, Command: []byte("cmd2")},
+		{Index: 3, Term: 2, Command: []byte("cmd3")},
+	}
+
+	// 1. Append entries
+	if err := store.AppendEntries(entries); err != nil {
+		t.Fatalf("failed to append entries: %v", err)
+	}
+
+	// 2. Check LastIndex and LastTerm
+	lastIdx, err := store.LastIndex()
+	if err != nil || lastIdx != 3 {
+		t.Fatalf("expected lastIndex 3, got %d", lastIdx)
+	}
+	lastTerm, err := store.LastTerm()
+	if err != nil || lastTerm != 2 {
+		t.Fatalf("expected lastTerm 2, got %d", lastTerm)
+	}
+
+	// 3. GetEntry: single retrieval
+	entry2, err := store.GetEntry(2)
+	if err != nil {
+		t.Fatalf("failed to get entry 2: %v", err)
+	}
+	if entry2.Term != 1 || string(entry2.Command) != "cmd2" {
+		t.Fatalf("unexpected entry 2 content: %+v", entry2)
+	}
+
+	// Non-existent entry should return an error
+	if _, err := store.GetEntry(99); err == nil {
+		t.Fatalf("expected error for non-existent entry 99, got nil")
+	}
+
+	// 4. GetEntriesFrom: range scan from index 2
+	rangeEntries, err := store.GetEntriesFrom(2)
+	if err != nil {
+		t.Fatalf("failed to get entries from index 2: %v", err)
+	}
+	if len(rangeEntries) != 2 {
+		t.Fatalf("expected 2 entries (index 2 and 3), got %d", len(rangeEntries))
+	}
+	if rangeEntries[0].Index != 2 || rangeEntries[1].Index != 3 {
+		t.Fatalf("unexpected entries in range scan: %+v", rangeEntries)
+	}
+
+	// 5. LoadAllEntries: should return sentinel (index 0) + 3 entries = 4 total
+	all, err := store.LoadAllEntries()
+	if err != nil {
+		t.Fatalf("failed to load all entries: %v", err)
+	}
+	if len(all) != 4 {
+		t.Fatalf("expected 4 entries including sentinel, got %d", len(all))
+	}
+	if all[0].Index != 0 || all[1].Index != 1 || all[2].Index != 2 || all[3].Index != 3 {
+		t.Fatalf("unexpected ordering in LoadAllEntries")
 	}
 }
