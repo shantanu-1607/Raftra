@@ -57,3 +57,40 @@ func TestBboltStore_Init(t *testing.T) {
 		t.Errorf("expected lastTerm 0, got %d", lastTerm)
 	}
 }
+
+func TestBboltStore_TermAndVote(t *testing.T) {
+	store, _ := createTestBboltStore(t)
+	defer store.Close()
+
+	// Save and verify term
+	if err := store.SaveTerm(5); err != nil {
+		t.Fatalf("failed to save term: %v", err)
+	}
+	term, err := store.LoadTerm()
+	if err != nil || term != 5 {
+		t.Fatalf("expected term 5, got %d (err: %v)", term, err)
+	}
+
+	// Save and verify vote
+	if err := store.SaveVotedFor("node-2"); err != nil {
+		t.Fatalf("failed to save votedFor: %v", err)
+	}
+	votedFor, err := store.LoadVotedFor()
+	if err != nil || votedFor != "node-2" {
+		t.Fatalf("expected votedFor 'node-2', got %q (err: %v)", votedFor, err)
+	}
+
+	// Overwrite term and vote (e.g. moving to higher term)
+	if err := store.SaveTerm(6); err != nil {
+		t.Fatalf("failed to update term: %v", err)
+	}
+	if err := store.SaveVotedFor(""); err != nil {
+		t.Fatalf("failed to clear votedFor: %v", err)
+	}
+
+	term, _ = store.LoadTerm()
+	votedFor, _ = store.LoadVotedFor()
+	if term != 6 || votedFor != "" {
+		t.Fatalf("expected term 6 and empty vote, got term %d, vote %q", term, votedFor)
+	}
+}
