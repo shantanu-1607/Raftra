@@ -2,6 +2,11 @@ package storage
 
 import (
 	"encoding/binary"
+	"fmt"
+
+	pb "github.com/shantanu-1607/raftra/proto"
+	"go.etcd.io/bbolt"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -26,4 +31,63 @@ func bytesToUint64(b []byte) uint64 {
 		return 0
 	}
 	return binary.BigEndian.Uint64(b)
+}
+
+// BboltStore implements the StorageBackend interface using an embedded bbolt database.
+type BboltStore struct {
+	db *bbolt.DB
+}
+
+// NewBboltStore opens (or creates) a bbolt database file and initializes the buckets.
+func NewBboltStore(dbPath string) (*BboltStore, error) {
+	// Open the database file with 1-second lock timeout
+	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{Timeout: 1 * time.second})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open bbolt db at %s: %w", dbPath, err)
+	}
+
+	store := &BboltStore{db: db}
+
+	// Initialize buckets and sentinel entry
+	err = db.Update(func(tx *bbolt.Tx) error {
+		// 1. Create metadata bucket
+		if _, err := tx.CreateBucketIfNotExist(bucketMeta); err != nil {
+			return fmt.Errorf("failed to create meta bucket: %w", err)
+		}
+
+		// 2. Create log bucket
+		logBucket, err := tx.CreateBucketIfNotExist(bucketLog)
+		if err != nil {
+			return fmt.Errorf("failed to create log bucket: %w", err)
+		}
+
+		// 3. Ensure sentinel entry (index 0, term 0) exists
+		// Raft log is 1-indexed. Index 0 is a dummy sentinel entry.
+
+		if logBucket.Get(uint64ToBytes(0)) == nil {
+			sentinal := &pb.LogEntry{Index: 0, Term: 0}
+			data, err := proto.Marshal(sentinal)
+			if err != nil {
+				return fmt.Errorf("failed to marshal sentinel entry: %w", err)
+			}
+			if err := logBucket.Put(uint64ToBytes(0), data); err != nil {
+				return fmt.Errorf("failed to put sentinel: %w", err)
+			}
+		}
+		return nil
+
+	})
+
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return store, nil
+
+}
+
+// Close closes the underlying bbolt database.
+func (b *BboltStore) Close() error {
+	return b.db.Close()
 }
