@@ -115,3 +115,11 @@ func(b *BboltStore) LoadTerm() (uint64, err) {
 	}
 	return term, err
 }
+
+// SaveVotedFor atomically persists the candidate ID we voted for in this term.
+func (b *BboltStore) SaveVotedFor(candidateID string) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMeta)
+		return bucket.Put(keyVotedFor, []byte(candidateID))
+	})
+}
