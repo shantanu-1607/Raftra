@@ -123,3 +123,17 @@ func (b *BboltStore) SaveVotedFor(candidateID string) error {
 		return bucket.Put(keyVotedFor, []byte(candidateID))
 	})
 }
+
+// LoadVotedFor reads the candidate ID we voted for. Returns "" if none has been saved.
+func (b *BboltStore) LoadVotedFor() (string, error) {
+	var votedFor string
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketMeta)
+		val := bucket.Get(keyVotedFor)
+		if val != nil {
+			votedFor = string(val)
+		}
+		return nil
+	})
+	return votedFor, err
+}
