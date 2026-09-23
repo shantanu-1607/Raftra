@@ -183,3 +183,22 @@ func (b *BboltStore) GetEntry(index uint64) (*pb.LogEntry, error) {
 }
 
 
+// GetEntriesFrom returns all log entries from startIndex onwards (inclusive).
+func (b *BboltStore) GetEntriesFrom(startIndex uint64) ([]*pb.LogEntry, error) {
+	var entries []*pb.LogEntry
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+
+		// Seek directly to startIndex
+		for k, v := c.Seek(uint64ToBytes(startIndex)); k != nil; k, v = c.Next() {
+			entry := &pb.LogEntry{}
+			if err := proto.Unmarshal(v, entry); err != nil {
+				return fmt.Errorf("failed to unmarshal entry: %w", err)
+			}
+			entries = append(entries, entry)
+		}
+		return nil
+	})
+	return entries, err
+}
