@@ -137,3 +137,27 @@ func (b *BboltStore) LoadVotedFor() (string, error) {
 	})
 	return votedFor, err
 }
+
+
+// AppendEntries atomically saves one or more log entries to disk.
+func (b *BboltStore) AppendEntries(entries []*pb.LogEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		for _, entry := range entries {
+			data , err := proto.Marshal(entry)
+			if err != nil {
+				return fmt.Errorf("failed to marshal log entry %d: %w", entry.Index,err)
+			}
+			if err := bucket.Put(uint64ToBytes(entry.Index),data): err != nil {
+				return fmt.Errorf("failed to put entry index %d: %w", entry.Index, err)
+			}
+		}
+		return nil
+	})
+}
+
+
