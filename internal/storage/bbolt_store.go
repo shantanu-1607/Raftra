@@ -202,3 +202,82 @@ func (b *BboltStore) GetEntriesFrom(startIndex uint64) ([]*pb.LogEntry, error) {
 	})
 	return entries, err
 }
+
+
+// TruncateFrom deletes all log entries from index to the end of the log.
+// This is used during log conflict resolution when a follower's log diverges from the leader's.
+func (b *BboltStore) TruncateFrom(index uint64) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+
+		// First, collect all keys that need to be deleted
+		var keysToDelete [][]byte
+		for k, _ := c.Seek(uint64ToBytes(index)); k != nil; k, _ = c.Next() {
+			keyCopy := make([]byte, len(k))
+			copy(keyCopy, k)
+			keysToDelete = append(keysToDelete, keyCopy)
+		}
+
+		// Delete collected keys
+		for _, k := range keysToDelete {
+			if err := bucket.Delete(k); err != nil {
+				return fmt.Errorf("failed to delete key %v: %w", k, err)
+			}
+		}
+		return nil
+	})
+}
+
+// LastIndex returns the highest log index stored in the database.
+func (b *BboltStore) LastIndex() (uint64, error) {
+	var lastIndex uint64
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+		k, _ := c.Last()
+		if k != nil {
+			lastIndex = bytesToUint64(k)
+		}
+		return nil
+	})
+	return lastIndex, err
+}
+
+// LastTerm returns the term of the highest log entry stored in the database.
+func (b *BboltStore) LastTerm() (uint64, error) {
+	var lastTerm uint64
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+		k, v := c.Last()
+		if k == nil || v == nil {
+			return nil
+		}
+		entry := &pb.LogEntry{}
+		if err := proto.Unmarshal(v, entry); err != nil {
+			return fmt.Errorf("failed to unmarshal last entry: %w", err)
+		}
+		lastTerm = entry.Term
+		return nil
+	})
+	return lastTerm, err
+}
+
+// LoadAllEntries returns all log entries from the database, starting with sentinel index 0.
+func (b *BboltStore) LoadAllEntries() ([]*pb.LogEntry, error) {
+	var entries []*pb.LogEntry
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		c := bucket.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			entry := &pb.LogEntry{}
+			if err := proto.Unmarshal(v, entry); err != nil {
+				return fmt.Errorf("failed to unmarshal entry: %w", err)
+			}
+			entries = append(entries, entry)
+		}
+		return nil
+	})
+	return entries, err
+}
