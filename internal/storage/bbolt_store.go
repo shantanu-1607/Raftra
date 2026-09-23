@@ -113,8 +113,8 @@ func (b *BboltStore) LoadTerm() (uint64, error) {
 		}
 		return nil
 	})
-	return term, err
-}
+	return term, err}
+
 
 // SaveVotedFor atomically persists the candidate ID we voted for in this term.
 func (b *BboltStore) SaveVotedFor(candidateID string) error {
@@ -158,6 +158,28 @@ func (b *BboltStore) AppendEntries(entries []*pb.LogEntry) error {
 		}
 		return nil
 	})
+}
+
+
+// GetEntry retrieves a single log entry by its index.
+func (b *BboltStore) GetEntry(index uint64) (*pb.LogEntry, error) {
+	var entry *pb.LogEntry
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(bucketLog)
+		val := bucket.Get(uint64ToBytes(index))
+		if val == nil {
+			return fmt.Errorf("entry index %d not found", index)
+		}
+		entry = &pb.LogEntry{}
+		if err := proto.Unmarshal(val, entry) ;err != nil {
+			return fmt.Errorf("failed to unmarshal entry index %d: %w", index, err)
+
+		}
+		retur nil
+	})
+
+	return entry, err
+	
 }
 
 
