@@ -1,13 +1,13 @@
 package main
 
 import (
-	"path/filepath"
 	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -71,8 +71,19 @@ func main() {
 		}
 	}
 
-// 5. Initialize durable bbolt storage and KV state machine
-    if err := os.MkdirAll()	
+	// 5. Initialize durable bbolt storage and KV state machine
+	if err := os.MkdirAll(*dataDir, 0755); err != nil {
+		logger.Error("failed to create data directory", "error", err, "path", *dataDir)
+		os.Exit(1)
+
+	}
+
+	dbPath := filepath.Join(*dataDir, fmt.Sprintf("%s.db", *nodeID))
+	store, err := storage.NewBboltStore(dbPath)
+	if err != nil {
+		logger.Error("failed to create bbolt store", "error", err, "path", dbPath)
+		os.Exit(1)
+	}
 	kv := kvstore.NewKVStore()
 
 	// 6. Initialize Raft configuration & node
