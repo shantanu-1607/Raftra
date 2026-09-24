@@ -137,5 +137,6 @@ func main() {
 	_ = httpServer.Stop(shutdownCtx)
 
 	_ = trans.Close()
+	_ = store.Close()
 	logger.Info("node stopped gracefully", "id", *nodeID)
 }
