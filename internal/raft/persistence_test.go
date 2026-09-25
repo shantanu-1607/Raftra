@@ -118,3 +118,42 @@ func TestNoDoubleVotingAfterRestart(t *testing.T) {
 	}
 
 }
+
+// Test Log Entries Survive Crash
+func TestLogSurvivesCrash(t *testing.T) {
+	node1, store1, _, dbPath := createBboltTestNode(t, "node1", nil, "")
+	forceLeader(node1, 1)
+	// Leader proposes two commands
+	idx1, err := node1.ProposeCommand(encodeSet("key1", "val1"))
+	if err != nil || idx1 != 1 {
+		t.Fatalf("failed proposing key1: %v", err)
+	}
+	idx2, err := node1.ProposeCommand(encodeSet("key2", "val2"))
+	if err != nil || idx2 != 2 {
+		t.Fatalf("failed proposing key2: %v", err)
+	}
+
+	// SIMULATE CRASH!
+	node1.Stop()
+	_ = store1.Close()
+	// SIMULATE REBOOT!
+	recoveredNode, recoveredStore, _, _ := createBboltTestNode(t, "node1", nil, dbPath)
+	defer func() {
+		recoveredNode.Stop()
+		_ = recoveredStore.Close()
+	}()
+	recoveredNode.mu.Lock()
+	defer recoveredNode.mu.Unlock()
+	// Verify all log entries survived in memory and storage
+	if len(recoveredNode.persistent.Log) != 3 { // Sentinel (index 0) + 2 entries = 3
+		t.Fatalf("expected 3 entries in log, got %d", len(recoveredNode.persistent.Log))
+	}
+	e1 := recoveredNode.persistent.Log[1]
+	if e1.Index != 1 || e1.Term != 1 {
+		t.Fatalf("corrupted entry 1: %+v", e1)
+	}
+	e2 := recoveredNode.persistent.Log[2]
+	if e2.Index != 2 || e2.Term != 1 {
+		t.Fatalf("corrupted entry 2: %+v", e2)
+	}
+}
