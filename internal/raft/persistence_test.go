@@ -157,3 +157,57 @@ func TestLogSurvivesCrash(t *testing.T) {
 		t.Fatalf("corrupted entry 2: %+v", e2)
 	}
 }
+
+// Test Follower Crash, Re-join & Catch-up
+func TestFollowerCrashAndCatchUp(t *testing.T) {
+	net := newClusterNetwork()
+	n1, s1, _, p1 := createBboltTestNode(t, "node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}}, "")
+	n2, s2, _, p2 := createBboltTestNode(t, "node2", []PeerConfig{{ID: "node1"}, {ID: "node3"}}, "")
+	n3, s3, kv3, p3 := createBboltTestNode(t, "node3", []PeerConfig{{ID: "node1"}, {ID: "node2"}}, "")
+	defer func() {
+		n1.Stop()
+		_ = s1.Close()
+		n2.Stop()
+		_ = s2.Close()
+	}()
+	net.registerNode(n1)
+	net.registerNode(n2)
+	net.registerNode(n3)
+	forceLeader(n1, 1)
+	// 1. Commit initial key with all 3 nodes
+	_, err := n1.ProposeCommand(encodeSet("initial", "yes"))
+	if err != nil {
+		t.Fatalf("failed to propose initial: %v", err)
+	}
+	n1.sendHeartbeats()
+	// Verify n3 received it
+	waitFor(t, 200*time.Millisecond, func() bool {
+		val, ok := kv3.Get("initial")
+		return ok && val == "yes"
+	}, "n3 receives initial write")
+	// 2. CRASH FOLLOWER n3!
+	net.isolate("node3")
+	n3.Stop()
+	_ = s3.Close()
+	// 3. Cluster commits 2 more writes while n3 is DEAD (n1 + n2 form 2/3 quorum)
+	_, _ = n1.ProposeCommand(encodeSet("during_crash", "valA"))
+	_, _ = n1.ProposeCommand(encodeSet("another_key", "valB"))
+	// 4. REBOOT FOLLOWER n3 from disk!
+	rebootedN3, rebootedS3, rebootedKV3, _ := createBboltTestNode(t, "node3", []PeerConfig{{ID: "node1"}, {ID: "node2"}}, p3)
+	defer func() {
+		rebootedN3.Stop()
+		_ = rebootedS3.Close()
+	}()
+	// Reconnect to network
+	net.registerNode(rebootedN3)
+	net.reconnect("node3")
+	// Leader sends heartbeats carrying the new commitIndex and missing entries
+	n1.sendHeartbeats()
+	// 5. Verify n3 caught up and restored all 3 keys into its KV state machine!
+	waitFor(t, 500*time.Millisecond, func() bool {
+		v1, ok1 := rebootedKV3.Get("initial")
+		v2, ok2 := rebootedKV3.Get("during_crash")
+		v3, ok3 := rebootedKV3.Get("another_key")
+		return ok1 && v1 == "yes" && ok2 && v2 == "valA" && ok3 && v3 == "valB"
+	}, "rebooted n3 catches up all committed writes")
+}
