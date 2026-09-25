@@ -67,3 +67,17 @@ func (cn *ChaosNetwork) BlockLink(nodeA, nodeB string) {
 	cn.blockedPairs[nodeA][nodeB] = true
 	cn.blockedPairs[nodeB][nodeA] = true
 }
+
+// Isolate completely disconnects a node from every other node in the cluster.
+func (cn *ChaosNetwork) Isolate(nodeID string) {
+	cn.mu.Lock()
+	defer cn.mu.Unlock()
+	cn.isolated[nodeID] = true
+}
+
+// Reconnect restores a node's network connection.
+func (cn *ChaosNetwork) Reconnect(nodeID string) {
+	cn.mu.Lock()
+	defer cn.mu.Unlock()
+	delete(cn.isolated, nodeID)
+}
