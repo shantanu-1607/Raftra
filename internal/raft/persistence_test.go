@@ -79,7 +79,7 @@ func TestTermAndVoteSurviveCrash(t *testing.T) {
 
 // Test Double-Voting Prevention Across Crashes
 func TestNoDoubleVotingAfterRestart(t *testing.T) {
-	node1, store1, _, dbpath := createBboltTestNode(t, "node", nil, "")
+	node1, store1, _, dbPath := createBboltTestNode(t, "node1", nil, "")
 
 	// Node 1 receives RequestVote from candidate "node2" in Term 3
 	req := &pb.RequestVoteRequest{
@@ -161,8 +161,8 @@ func TestLogSurvivesCrash(t *testing.T) {
 // Test Follower Crash, Re-join & Catch-up
 func TestFollowerCrashAndCatchUp(t *testing.T) {
 	net := newClusterNetwork()
-	n1, s1, _, p1 := createBboltTestNode(t, "node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}}, "")
-	n2, s2, _, p2 := createBboltTestNode(t, "node2", []PeerConfig{{ID: "node1"}, {ID: "node3"}}, "")
+	n1, s1, _, _ := createBboltTestNode(t, "node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}}, "")
+	n2, s2, _, _ := createBboltTestNode(t, "node2", []PeerConfig{{ID: "node1"}, {ID: "node3"}}, "")
 	n3, s3, kv3, p3 := createBboltTestNode(t, "node3", []PeerConfig{{ID: "node1"}, {ID: "node2"}}, "")
 	defer func() {
 		n1.Stop()
@@ -216,8 +216,8 @@ func TestExLeaderRestartsAndStepsDown(t *testing.T) {
 	net := newClusterNetwork()
 
 	n1, s1, _, p1 := createBboltTestNode(t, "node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}}, "")
-	n2, s2, _, p2 := createBboltTestNode(t, "node2", []PeerConfig{{ID: "node1"}, {ID: "node3"}}, "")
-	n3, s3, _, p3 := createBboltTestNode(t, "node3", []PeerConfig{{ID: "node1"}, {ID: "node2"}}, "")
+	n2, s2, _, _ := createBboltTestNode(t, "node2", []PeerConfig{{ID: "node1"}, {ID: "node3"}}, "")
+	n3, s3, _, _ := createBboltTestNode(t, "node3", []PeerConfig{{ID: "node1"}, {ID: "node2"}}, "")
 
 	defer func() {
 		n2.Stop()
