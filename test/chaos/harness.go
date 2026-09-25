@@ -119,3 +119,39 @@ func NewTestTransport(nodeID string, network *ChaosNetwork) *TestTransport {
 	}
 }
 
+// SendRequestVote delivers a vote request through the virtual network.
+func (tt *TestTransport) SendRequestVote(peerID string, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
+	// 1. Check if the link is cut
+	if tt.network.IsBlocked(tt.nodeID, peerID) {
+		return nil, errors.New("network partition: packet dropped")
+	}
+	tt.network.mu.RLock()
+	target, exists := tt.network.nodes[peerID]
+	tt.network.mu.RUnlock()
+	if !exists {
+		return nil, fmt.Errorf("peer %s not found on virtual network", peerID)
+	}
+	// 2. Clone the protobuf message to simulate physical network serialization!
+	// (Prevents nodes from sharing pointers in memory)
+	clonedReq := proto.Clone(req).(*pb.RequestVoteRequest)
+	resp := target.HandleRequestVote(clonedReq)
+	return proto.Clone(resp).(*pb.RequestVoteResponse), nil
+}
+
+// SendAppendEntries delivers replicated entries/heartbeats through the virtual network.
+func (tt *TestTransport) SendAppendEntries(peerID string, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+	// 1. Check if the link is cut
+	if tt.network.IsBlocked(tt.nodeID, peerID) {
+		return nil, errors.New("network partition: packet dropped")
+	}
+	tt.network.mu.RLock()
+	target, exists := tt.network.nodes[peerID]
+	tt.network.mu.RUnlock()
+	if !exists {
+		return nil, fmt.Errorf("peer %s not found on virtual network", peerID)
+	}
+	// 2. Clone the protobuf message
+	clonedReq := proto.Clone(req).(*pb.AppendEntriesRequest)
+	resp := target.HandleAppendEntries(clonedReq)
+	return proto.Clone(resp).(*pb.AppendEntriesResponse), nil
+}
