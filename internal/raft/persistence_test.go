@@ -10,6 +10,7 @@ import (
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
 	"github.com/shantanu-1607/raftra/internal/storage"
+	pb "github.com/shantanu-1607/raftra/proto"
 )
 
 // createBboltTestNode creates a RaftNode backed by a real bbolt database on disk.
@@ -72,6 +73,48 @@ func TestTermAndVoteSurviveCrash(t *testing.T) {
 	}
 	if recoveredNode.persistent.VotedFor != "node2" {
 		t.Fatalf("expected votedFor 'node2' after recovery, got %s", recoveredNode.persistent.VotedFor)
+	}
+
+}
+
+// Test Double-Voting Prevention Across Crashes
+func TestNoDoubleVotingAfterRestart(t *testing.T) {
+	node1, store1, _, dbpath := createBboltTestNode(t, "node", nil, "")
+
+	// Node 1 receives RequestVote from candidate "node2" in Term 3
+	req := &pb.RequestVoteRequest{
+		Term:         3,
+		CandidateId:  "node2",
+		LastLogIndex: 0,
+		LastLogTerm:  0,
+	}
+
+	resp := node1.HandleRequestVote(req)
+	if !resp.VoteGranted {
+		t.Fatalf("expected vote to be granted to node2")
+	}
+
+	// SIMULATE CRASH!
+	node1.Stop()
+	_ = store1.Close()
+	// SIMULATE REBOOT!
+	recoveredNode, recoveredStore, _, _ := createBboltTestNode(t, "node1", nil, dbPath)
+	defer func() {
+		recoveredNode.Stop()
+		_ = recoveredStore.Close()
+	}()
+
+	// In the same Term 3, another candidate "node3" asks for vote
+	req2 := &pb.RequestVoteRequest{
+		Term:         3,
+		CandidateId:  "node3",
+		LastLogIndex: 0,
+		LastLogTerm:  0,
+	}
+	resp2 := recoveredNode.HandleRequestVote(req2)
+	// MUST BE DENIED! (Safety: at most one vote per term)
+	if resp2.VoteGranted {
+		t.Fatalf("SAFETY VIOLATION: node voted for two different candidates in term 3!")
 	}
 
 }
