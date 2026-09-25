@@ -150,49 +150,11 @@ func (rn *RaftNode) sendHeartbeats() {
 	rn.sendHeartbeatsLocked()
 }
 
-// sendHeartbeatsLocked broadcasts empty AppendEntries RPCs to all peers in parallel.
+// sendHeartbeatsLocked broadcasts AppendEntries RPCs to all peers in parallel.
+// Per Raft §5.2 & §5.3, heartbeats carry any pending log entries needed to bring followers up to date.
 // NOTE: Caller MUST hold rn.mu.
 func (rn *RaftNode) sendHeartbeatsLocked() {
-	if rn.role != Leader {
-		return
-	}
-
-	currentTerm := rn.persistent.CurrentTerm
-	leaderID := rn.config.NodeID
-	commitIndex := rn.volatile.CommitIndex
-
-	for peerID := range rn.peers {
-		prevIndex := rn.leader.NextIndex[peerID] - 1
-		var prevTerm uint64
-		if entry, err := rn.storage.GetEntry(prevIndex); err == nil && entry != nil {
-			prevTerm = entry.Term
-		}
-
-		req := &pb.AppendEntriesRequest{
-			Term:         currentTerm,
-			LeaderId:     leaderID,
-			PrevLogIndex: prevIndex,
-			PrevLogTerm:  prevTerm,
-			Entries:      nil, // Empty slice signifies a heartbeat
-			LeaderCommit: commitIndex,
-		}
-
-		go func(peer string, r *pb.AppendEntriesRequest) {
-			resp, err := rn.transport.SendAppendEntries(peer, r)
-			if err != nil {
-				rn.logger.Debug("failed to send heartbeat to peer", "peer", peer, "err", err)
-				return
-			}
-
-			rn.mu.Lock()
-			defer rn.mu.Unlock()
-
-			if rn.checkTerm(resp.Term) {
-				rn.resetElectionTimer()
-				return
-			}
-		}(peerID, req)
-	}
+	rn.broadcastAppendEntriesLocked()
 }
 
 // HandleRequestVote handles an incoming RequestVote RPC from a candidate.

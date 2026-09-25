@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -24,6 +25,7 @@ func main() {
 	httpPort := flag.Int("http-port", 8001, "HTTP REST gateway port to listen on")
 	peerFlag := flag.String("peers", "", "comma-separated list of peer ID:address (e.g. node2:localhost:50052,node3:localhost:50053)")
 	httpPeersFlag := flag.String("http-peers", "", "comma-separated list of peer ID:http-address (e.g. node1:http://localhost:8001,node2:http://localhost:8002)")
+	dataDir := flag.String("data-dir", "data", "Directory to store Raft persistent state and logs")
 	flag.Parse()
 
 	// 2. Setup structured logging
@@ -69,8 +71,19 @@ func main() {
 		}
 	}
 
-	// 5. Initialize storage and KV state machine
-	store := storage.NewMemoryStore()
+	// 5. Initialize durable bbolt storage and KV state machine
+	if err := os.MkdirAll(*dataDir, 0755); err != nil {
+		logger.Error("failed to create data directory", "error", err, "path", *dataDir)
+		os.Exit(1)
+
+	}
+
+	dbPath := filepath.Join(*dataDir, fmt.Sprintf("%s.db", *nodeID))
+	store, err := storage.NewBboltStore(dbPath)
+	if err != nil {
+		logger.Error("failed to create bbolt store", "error", err, "path", dbPath)
+		os.Exit(1)
+	}
 	kv := kvstore.NewKVStore()
 
 	// 6. Initialize Raft configuration & node
@@ -124,5 +137,6 @@ func main() {
 	_ = httpServer.Stop(shutdownCtx)
 
 	_ = trans.Close()
+	_ = store.Close()
 	logger.Info("node stopped gracefully", "id", *nodeID)
 }
