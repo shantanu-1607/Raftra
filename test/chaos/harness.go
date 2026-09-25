@@ -81,3 +81,24 @@ func (cn *ChaosNetwork) Reconnect(nodeID string) {
 	defer cn.mu.Unlock()
 	delete(cn.isolated, nodeID)
 }
+
+// Partition splits the cluster into two isolated islands (groupA and groupB).
+// Nodes within groupA can talk to each other.
+// Nodes within groupB can talk to each other.
+// NO traffic can cross between groupA and groupB!
+func (cn *ChaosNetwork) Partition(groupA, groupB []string) {
+	for _, a := range groupA {
+		for _, b := range groupB {
+			cn.BlockLink(a, b)
+		}
+	}
+}
+
+// HealAll clears all network blocks, isolations, and delays.
+func (cn *ChaosNetwork) HealAll() {
+	cn.mu.Lock()
+	defer cn.mu.Unlock()
+	cn.blockedPairs = make(map[string]map[string]bool)
+	cn.isolated = make(map[string]bool)
+	cn.delays = make(map[string]time.Duration)
+}
