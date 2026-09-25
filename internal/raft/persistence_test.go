@@ -211,3 +211,54 @@ func TestFollowerCrashAndCatchUp(t *testing.T) {
 		return ok1 && v1 == "yes" && ok2 && v2 == "valA" && ok3 && v3 == "valB"
 	}, "rebooted n3 catches up all committed writes")
 }
+
+func TestExLeaderRestartsAndStepsDown(t *testing.T) {
+	net := newClusterNetwork()
+
+	n1, s1, _, p1 := createBboltTestNode(t, "node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}}, "")
+	n2, s2, _, p2 := createBboltTestNode(t, "node2", []PeerConfig{{ID: "node1"}, {ID: "node3"}}, "")
+	n3, s3, _, p3 := createBboltTestNode(t, "node3", []PeerConfig{{ID: "node1"}, {ID: "node2"}}, "")
+
+	defer func() {
+		n2.Stop()
+		_ = s2.Close()
+		n3.Stop()
+		_ = s3.Close()
+	}()
+
+	net.registerNode(n1)
+	net.registerNode(n2)
+	net.registerNode(n3)
+
+	// n1 is leader in Term 1
+	forceLeader(n1, 1)
+
+	// n1 crashes!
+	net.isolate("node1")
+	n1.Stop()
+	_ = s1.Close()
+
+	// n2 is elected new Leader in Term 2
+	forceLeader(n2, 2)
+	_, _ = n2.ProposeCommand(encodeSet("new_term_key", "term2_val"))
+
+	// n1 restarts from disk!
+	rebootedN1, rebootedS1, _, _ := createBboltTestNode(t, "node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}}, p1)
+	defer func() {
+		rebootedN1.Stop()
+		_ = rebootedS1.Close()
+	}()
+
+	net.registerNode(rebootedN1)
+	net.reconnect("node1")
+
+	// New leader n2 sends heartbeat to n1
+	n2.sendHeartbeats()
+
+	// n1 must discover Term 2 and step down as Follower!
+	waitFor(t, 200*time.Millisecond, func() bool {
+		rebootedN1.mu.Lock()
+		defer rebootedN1.mu.Unlock()
+		return rebootedN1.role == Follower && rebootedN1.persistent.CurrentTerm == 2
+	}, "rebooted ex-leader steps down to Follower in Term 2")
+}
