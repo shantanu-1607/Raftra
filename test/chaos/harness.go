@@ -102,3 +102,20 @@ func (cn *ChaosNetwork) HealAll() {
 	cn.isolated = make(map[string]bool)
 	cn.delays = make(map[string]time.Duration)
 }
+
+
+// TestTransport connects an individual RaftNode to the ChaosNetwork.
+type TestTransport struct {
+	nodeID  string
+	network *ChaosNetwork
+
+}
+
+// NewTestTransport creates a network adapter for a node.
+func NewTestTransport(nodeID string, network *ChaosNetwork) *TestTransport {
+	return &TestTransport {
+		nodeID: nodeID
+		network: network,
+	}
+}
+
