@@ -34,3 +34,36 @@ func (cn *ChaosNetwork) RegisterNode(node *raft.RaftNode) {
 	defer cn.mu.Unlock()
 	cn.nodes[node.ID()] = node
 }
+
+// IsBlocked checks if traffic from sender to receiver is currently prohibited.
+func (cn *ChaosNetwork) IsBlocked(sender, receiver string) bool {
+	cn.mu.RLock()
+	defer cn.mu.RUnlock()
+
+	// If either sender or receiver is completely isolated, drop packet
+	if cn.isolated[sender] || cn.isolated[receiver] {
+		return true
+	}
+
+	// Check if this specific pair is blocked
+	if blockedRecvs, exists := cn.blockedPairs[sender]; exists && blockedRecvs[receiver] {
+		return true
+	}
+	return false
+
+}
+
+// BlockLink cuts the network cable bidirectionally between nodeA and nodeB.
+func (cn *ChaosNetwork) BlockLink(nodeA, nodeB string) {
+	cn.mu.lock()
+	defer cn.mu.Unlock()
+
+	if _, ok := cn.blockedPairs[nodeA]; !ok {
+		cn.blockedPairs[nodeA] = make(map[string]bool)
+	}
+	if _, ok := cn.blockedPairs[nodeB]; !ok {
+		cn.blockedPairs[nodeB] = make(map[string]bool)
+	}
+	cn.blockedPairs[nodeA][nodeB] = true
+	cn.blockedPairs[nodeB][nodeA] = true
+}
