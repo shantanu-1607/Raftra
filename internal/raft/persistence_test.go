@@ -45,5 +45,33 @@ func TestTermAndVoteSurviveCrash(t *testing.T) {
 	node1, store1, _, dbPath := createBboltTestNode(t, "node1", nil, "")
 
 	// 1. Advance term and cast vote
+	node1.mu.Lock()
+	node1.persistent.CurrentTerm = 5
+	node1.persistent.VotedFor = "node2"
+	_ = store1.SaveTerm(5)
+	_ = store1.SaveVotedFor("node2")
+	node1.mu.Unlock()
+
+	// 2. SIMULATE CRASH: Stop node and close database
+	node1.Stop()
+	_ = store1.Close()
+
+	// 3. SIMULATE REBOOT: Start a new node from the same dbPath
+	recoveredNode, recoveredStore, _, _ := createBboltTestNode(t, "node1", nil, dbPath)
+	defer func() {
+		recoveredNode.Stop()
+		_ = recoveredStore.Close()
+	}()
+
+	// 4. VERIFY TERM AND VOTE PERSISTED
+	recoveredNode.mu.Lock()
+	defer recoveredNode.mu.Unlock()
+
+	if recoveredNode.persistent.CurrentTerm != 5 {
+		t.Fatalf("expected term 5 after recovery, got %d", recoveredNode.persistent.CurrentTerm)
+	}
+	if recoveredNode.persistent.VotedFor != "node2" {
+		t.Fatalf("expected votedFor 'node2' after recovery, got %s", recoveredNode.persistent.VotedFor)
+	}
 
 }
