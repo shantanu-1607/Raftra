@@ -225,6 +225,11 @@ func (rn *RaftNode) LeaderID() string {
 	return rn.leaderID
 }
 
+// ID returns the unique node identifier.
+func (rn *RaftNode) ID() string {
+	return rn.config.NodeID
+}
+
 // Get retrieves a value from the committed state machine (thread-safe fast read).
 func (rn *RaftNode) Get(key string) (string, bool) {
 	return rn.kvStore.Get(key)

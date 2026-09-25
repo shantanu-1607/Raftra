@@ -1,10 +1,14 @@
 package chaos
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/shantanu-1607/raftra/internal/raft"
+	pb "github.com/shantanu-1607/raftra/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 // ChaosNetwork is an in-memory virtual network router.
@@ -55,7 +59,7 @@ func (cn *ChaosNetwork) IsBlocked(sender, receiver string) bool {
 
 // BlockLink cuts the network cable bidirectionally between nodeA and nodeB.
 func (cn *ChaosNetwork) BlockLink(nodeA, nodeB string) {
-	cn.mu.lock()
+	cn.mu.Lock()
 	defer cn.mu.Unlock()
 
 	if _, ok := cn.blockedPairs[nodeA]; !ok {
@@ -113,8 +117,8 @@ type TestTransport struct {
 
 // NewTestTransport creates a network adapter for a node.
 func NewTestTransport(nodeID string, network *ChaosNetwork) *TestTransport {
-	return &TestTransport {
-		nodeID: nodeID
+	return &TestTransport{
+		nodeID:  nodeID,
 		network: network,
 	}
 }
@@ -154,4 +158,9 @@ func (tt *TestTransport) SendAppendEntries(peerID string, req *pb.AppendEntriesR
 	clonedReq := proto.Clone(req).(*pb.AppendEntriesRequest)
 	resp := target.HandleAppendEntries(clonedReq)
 	return proto.Clone(resp).(*pb.AppendEntriesResponse), nil
+}
+
+// Close satisfies the raft.Transport interface.
+func (tt *TestTransport) Close() error {
+	return nil
 }
