@@ -40,3 +40,10 @@ func createBboltTestNode(t *testing.T, id string, peers []PeerConfig, dbPath str
 	}
 	return node, store, kv, dbPath
 }
+
+func TestTermAndVoteSurviveCrash(t *testing.T) {
+	node1, store1, _, dbPath := createBboltTestNode(t, "node1", nil, "")
+
+	// 1. Advance term and cast vote
+
+}
