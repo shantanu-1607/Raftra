@@ -207,7 +207,7 @@ func NewTestCluster(t *testing.T, size int) *TestCluster {
 		baseDir: baseDir,
 	}
 
-	for _, id = range peerIDs {
+	for _, id := range peerIDs {
 		tc.createNode(id)
 	}
 	return tc
@@ -218,7 +218,7 @@ func (tc *TestCluster) createNode(id string) {
 	tc.t.Helper()
 
 	// 1. Prepare peer list excluding self
-	var peers []rafr.PeerConfig
+	var peers []raft.PeerConfig
 	for _, p := range tc.peers {
 		if p != id {
 			peers = append(peers, raft.PeerConfig{ID: p})
@@ -280,4 +280,35 @@ func (tc *TestCluster) Stop() {
 			_ = store.Close()
 		}
 	}
+}
+
+// WaitForLeader polls the cluster until exactly one node becomes Leader.
+func (tc *TestCluster) WaitForLeader(timeout time.Duration) *raft.RaftNode {
+	tc.t.Helper()
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		leaders := tc.GetLeaders()
+		if len(leaders) == 1 {
+			return leaders[0]
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	tc.t.Fatalf("timed out after %v waiting for a unique leader", timeout)
+	return nil
+}
+
+// GetLeaders returns all nodes that currently consider themselves Leader.
+func (tc *TestCluster) GetLeaders() []*raft.RaftNode {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	var leaders []*raft.RaftNode
+	for _, node := range tc.nodes {
+		if node.Role() == raft.Leader {
+			leaders = append(leaders, node)
+		}
+	}
+	return leaders
 }
