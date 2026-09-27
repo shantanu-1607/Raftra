@@ -433,3 +433,37 @@ func (tc *TestCluster) PartitionGroup(groupA, groupB []string) {
 func (tc *TestCluster) Heal() {
 	tc.network.HealAll()
 }
+
+// GetKV retrieves a key from a specific node's state machine.
+func (tc *TestCluster) GetKV(nodeID, key string) (string, bool) {
+	tc.mu.Unlock()
+	if kv, ok := tc.kvs[nodeID]; ok {
+		return kv.Get(key)
+	}
+	return "", false
+}
+
+// AssertAllKVConsistent polls until every active node has applied and agrees on the key-value pair.
+func (tc *TestCluster) AssertAllKVConsistent(key, expectedVal string, timeout time.Duration) {
+	tc.t.Helper()
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		allMatch := true
+		tc.mu.Lock()
+		for id := range tc.nodes {
+			val, ok := tc.kvs[id].Get(key)
+			if !ok || val != expectedVal {
+				allMatch = false
+				break
+			}
+		}
+		tc.mu.Unlock()
+
+		if allMatch {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	tc.t.Fatalf("timed out after %v waiting for all nodes to agree on key %q = %q", timeout, key, expectedVal)
+}
