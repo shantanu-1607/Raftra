@@ -312,3 +312,57 @@ func (tc *TestCluster) GetLeaders() []*raft.RaftNode {
 	}
 	return leaders
 }
+
+// Propose submits a key-value write to the current cluster leader.
+func (tc *TestCluster) Propose(key, val string) (uint64, error) {
+	tc.t.Helper()
+	leaders := tc.GetLeaders()
+	if len(leaders) == 0 {
+		return 0, errors.New("no leader found in the cluster")
+	}
+
+	cmd := kvstore.Command{Type: kvstore.CmdSet, Key: key, Value: val}
+	b, err := cmd.Encode()
+	if err != nil {
+		return 0, err
+	}
+	return leaders[0].ProposeCommand(b)
+}
+
+// ProposeOnNode submits a write directly to a specific node.
+// Useful to prove that an isolated minority node rejects or fails to commit writes!
+func (tc *TestCluster) ProposeOnNode(nodeID, key, val string) (uint64, error) {
+	tc.mu.Lock()
+	node, ok := tc.nodes[nodeID]
+	tc.mu.Unlock()
+	if !ok {
+		return 0, fmt.Errorf("node %s not found", nodeID)
+	}
+
+	cmd := kvstore.Command{Type: kvstore.CmdSet, Key: key, Value: val}
+
+	b, err := cmd.Encode()
+	if err != nil {
+		return 0, err
+	}
+
+	return node.ProposeCommand(b)
+}
+
+// Crash simulates sudden power loss on a node:
+// stops its event loop, isolates it from the network, and closes its database file.
+func (tc *TestCluster) Crash(nodeID string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	if node, ok := tc.nodes[nodeID]; ok {
+		node.Stop()
+		delete(tc.nodes, nodeID)
+	}
+	if store, ok := tc.stores[nodeID]; ok {
+		_ = store.Close()
+		delete(tc.stores, nodeID)
+	}
+	tc.network.Isolate(nodeID)
+
+}
