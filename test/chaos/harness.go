@@ -259,3 +259,25 @@ func (tc *TestCluster) createNode(id string) {
 	tc.dbPaths[id] = dbPath
 
 }
+
+// Start launches all nodes in the cluster.
+func (tc *TestCluster) Start() {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	for _, node := range tc.nodes {
+		node.Start()
+	}
+}
+
+// Stop gracefully shuts down all nodes and closes their bbolt databases.
+func (tc *TestCluster) Stop() {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	for id, node := range tc.nodes {
+		node.Stop()
+		if store, ok := tc.stores[id]; ok {
+			_ = store.Close()
+		}
+	}
+}
