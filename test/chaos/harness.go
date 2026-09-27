@@ -418,3 +418,18 @@ func (tc *TestCluster) Restart(nodeID string) *raft.RaftNode {
 }
 
 // Partition isolates a single node from all peers.
+func (tc *TestCluster) Partition(nodeID string) {
+	tc.network.Isolate(nodeID)
+}
+
+// PartitionGroup divides the cluster into two disconnected groups.
+// Nodes in groupA can only talk to groupA.
+// Nodes in groupB can only talk to groupB.
+func (tc *TestCluster) PartitionGroup(groupA, groupB []string) {
+	tc.network.Partition(groupA, groupB)
+}
+
+// Heal restores all network connections across the entire cluster.
+func (tc *TestCluster) Heal() {
+	tc.network.HealAll()
+}
