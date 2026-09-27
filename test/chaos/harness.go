@@ -366,3 +366,55 @@ func (tc *TestCluster) Crash(nodeID string) {
 	tc.network.Isolate(nodeID)
 
 }
+
+// Restart simulates a crashed node booting back up.
+// It opens the existing bbolt DB file from disk, starts a new RaftNode instance,
+// reconnects its network adapter, and launches its event loop.
+func (tc *TestCluster) Restart(nodeID string) *raft.RaftNode {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	// 1. Re-open existing bbolt database on disk
+	dbPath := tc.dbPaths[nodeID]
+	store, err := storage.NewBboltStore(dbPath)
+
+	if err != nil {
+		tc.t.Fatalf("failed to reopen bbolt store for %s: %v", nodeID, err)
+	}
+
+	// 2. Prepare peer list excluding self
+	var peers []raft.PeerConfig
+	for _, p := range tc.peers {
+		if p != nodeID {
+			peers = append(peers, raft.PeerConfig{ID: p})
+		}
+	}
+
+	// 3. New state machine and silent logger
+	kv := kvstore.NewKVStore()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	cfg := raft.DefaultConfig(nodeID, peers)
+	cfg.ElectionTimeoutMin = 60 * time.Millisecond
+	cfg.ElectionTimeoutMax = 120 * time.Millisecond
+	cfg.HeartbeatInterval = 20 * time.Millisecond
+
+	// 4. New RaftNode instance (recovers term, vote, and log from bbolt)
+	node, err := raft.NewRaftNode(cfg, store, kv, logger)
+	if err != nil {
+		tc.t.Fatalf("failed to create raft node %s: %v", nodeID, err)
+	}
+
+	// 5. Reconnect to virtual network
+	trans := NewTestTransport(nodeID, tc.network)
+	node.SetTransport(trans)
+	tc.network.RegisterNode(node)
+	tc.network.Reconnect(nodeID)
+	tc.nodes[nodeID] = node
+	tc.stores[nodeID] = store
+	tc.kvs[nodeID] = kv
+	node.Start()
+	return node
+}
+
+// Partition isolates a single node from all peers.
