@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -234,7 +235,7 @@ func (tc *TestCluster) createNode(id string) {
 
 	}
 	kv := kvstore.NewKVStore()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// 3. Fast timeouts for speedy tests!
 	cfg := raft.DefaultConfig(id, peers)
@@ -295,6 +296,25 @@ func (tc *TestCluster) WaitForLeader(timeout time.Duration) *raft.RaftNode {
 	}
 
 	tc.t.Fatalf("timed out after %v waiting for a unique leader", timeout)
+	return nil
+}
+
+// WaitForNewLeader polls the cluster until exactly one node becomes Leader, and its ID is not oldLeaderID.
+func (tc *TestCluster) WaitForNewLeader(oldLeaderID string, timeout time.Duration) *raft.RaftNode {
+	tc.t.Helper()
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		leaders := tc.GetLeaders()
+		for _, l := range leaders {
+			if l.ID() != oldLeaderID {
+				return l
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	tc.t.Fatalf("timed out after %v waiting for a new leader different from %s", timeout, oldLeaderID)
 	return nil
 }
 
