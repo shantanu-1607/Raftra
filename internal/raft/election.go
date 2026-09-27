@@ -20,6 +20,12 @@ func (rn *RaftNode) checkTerm(incomingTerm uint64) bool {
 		rn.role = Follower
 		rn.leader = nil
 
+		// Abort any in-flight proposals on this node since leadership was lost (§5.1)
+		for idx, ch := range rn.pendingCommits {
+			ch <- ErrNotLeader
+			delete(rn.pendingCommits, idx)
+		}
+
 		// Persist the updated term and cleared vote
 		_ = rn.storage.SaveTerm(incomingTerm)
 		_ = rn.storage.SaveVotedFor("")

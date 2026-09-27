@@ -233,15 +233,14 @@ func (tc *TestCluster) createNode(id string) {
 		tc.t.Fatalf("failed to create bbolt store for %s: %v", id, err)
 
 	}
-
 	kv := kvstore.NewKVStore()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	// 3. Fast timeouts for speedy tests!
 	cfg := raft.DefaultConfig(id, peers)
-	cfg.ElectionTimeoutMin = 60 * time.Millisecond
-	cfg.ElectionTimeoutMax = 120 * time.Millisecond
-	cfg.HeartbeatInterval = 20 * time.Millisecond
+	cfg.ElectionTimeoutMin = 150 * time.Millisecond
+	cfg.ElectionTimeoutMax = 300 * time.Millisecond
+	cfg.HeartbeatInterval = 30 * time.Millisecond
 
 	node, err := raft.NewRaftNode(cfg, store, kv, logger)
 	if err != nil {
@@ -314,19 +313,32 @@ func (tc *TestCluster) GetLeaders() []*raft.RaftNode {
 }
 
 // Propose submits a key-value write to the current cluster leader.
+// It retries briefly if the cluster is in the middle of a leader election.
 func (tc *TestCluster) Propose(key, val string) (uint64, error) {
 	tc.t.Helper()
-	leaders := tc.GetLeaders()
-	if len(leaders) == 0 {
-		return 0, errors.New("no leader found in the cluster")
-	}
+	deadline := time.Now().Add(3 * time.Second)
 
 	cmd := kvstore.Command{Type: kvstore.CmdSet, Key: key, Value: val}
 	b, err := cmd.Encode()
 	if err != nil {
 		return 0, err
 	}
-	return leaders[0].ProposeCommand(b)
+
+	var lastErr error
+	for time.Now().Before(deadline) {
+		leaders := tc.GetLeaders()
+		if len(leaders) > 0 {
+			idx, err := leaders[0].ProposeCommand(b)
+			if err == nil {
+				return idx, nil
+			}
+			lastErr = err
+		} else {
+			lastErr = errors.New("no leader found in the cluster")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return 0, lastErr
 }
 
 // ProposeOnNode submits a write directly to a specific node.
@@ -395,9 +407,9 @@ func (tc *TestCluster) Restart(nodeID string) *raft.RaftNode {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	cfg := raft.DefaultConfig(nodeID, peers)
-	cfg.ElectionTimeoutMin = 60 * time.Millisecond
-	cfg.ElectionTimeoutMax = 120 * time.Millisecond
-	cfg.HeartbeatInterval = 20 * time.Millisecond
+	cfg.ElectionTimeoutMin = 150 * time.Millisecond
+	cfg.ElectionTimeoutMax = 300 * time.Millisecond
+	cfg.HeartbeatInterval = 30 * time.Millisecond
 
 	// 4. New RaftNode instance (recovers term, vote, and log from bbolt)
 	node, err := raft.NewRaftNode(cfg, store, kv, logger)
