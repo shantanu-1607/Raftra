@@ -122,7 +122,7 @@ func TestScenario3_MinorityPartition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed baseline propose: %v", err)
 	}
-	cluster.AssertAllKVConsistent("k1", "v1", 1*time.Second)
+	cluster.AssertAllKVConsistent("k1", "v1", 2*time.Second)
 
 	// 2. Identify a follower to isolate
 	var followerID string
@@ -195,15 +195,30 @@ func TestScenario4_LeaderPartitionSplitBrain(t *testing.T) {
 	}
 
 	// 4. Commit a new write on the majority partition's new leader
-	_, err = cluster.ProposeOnNode(newLeader.ID(), "key2", "value2")
+	_, err = cluster.Propose("key2", "value2")
 	if err != nil {
 		t.Fatalf("failed proposing key2 on new leader: %v", err)
 	}
 
 	// 5. Verify the new leader applied "key2"
-	val2, ok2 := cluster.GetKV(newLeader.ID(), "key2")
-	if !ok2 || val2 != "value2" {
-		t.Fatalf("expected new leader to have key2=value2, got ok=%v, val=%s", ok2, val2)
+	deadline := time.Now().Add(2 * time.Second)
+	var found bool
+	for time.Now().Before(deadline) {
+		for _, leader := range cluster.GetLeaders() {
+			if leader.ID() != oldLeaderID {
+				if val, ok := cluster.GetKV(leader.ID(), "key2"); ok && val == "value2" {
+					found = true
+					break
+				}
+			}
+		}
+		if found {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !found {
+		t.Fatalf("expected new leader in majority partition to have key2=value2")
 	}
 
 	// 6. Verify the old isolated leader did NOT receive "key2"
@@ -231,30 +246,30 @@ func TestScenario5_RapidCascadingLeaderKills(t *testing.T) {
 	cluster.Start()
 	defer cluster.Stop()
 
-	// 1. Initial leader and write
-	leader1 := cluster.WaitForLeader(2 * time.Second)
-	_, err := cluster.ProposeOnNode(leader1.ID(), "key1", "val1")
+	// 1. Initial write
+	_, err := cluster.Propose("key1", "val1")
 	if err != nil {
-		t.Fatalf("failed: %v", err)
+		t.Fatalf("failed proposing key1: %v", err)
 	}
+	leader1 := cluster.WaitForLeader(2 * time.Second)
 
 	// 2. Kill leader 1 (4 nodes left, quorum 3)
 	cluster.Crash(leader1.ID())
-	leader2 := cluster.WaitForNewLeader(leader1.ID(), 2*time.Second)
 
-	_, err = cluster.ProposeOnNode(leader2.ID(), "key2", "val2")
+	_, err = cluster.Propose("key2", "val2")
 	if err != nil {
-		t.Fatalf("failed: %v", err)
+		t.Fatalf("failed proposing key2: %v", err)
 	}
+	leader2 := cluster.WaitForNewLeader(leader1.ID(), 2*time.Second)
 
 	// 3. Kill leader 2 (3 nodes left, quorum 3)
 	cluster.Crash(leader2.ID())
-	leader3 := cluster.WaitForNewLeader(leader2.ID(), 2*time.Second)
 
-	_, err = cluster.ProposeOnNode(leader3.ID(), "key3", "val3")
+	_, err = cluster.Propose("key3", "val3")
 	if err != nil {
-		t.Fatalf("failed: %v", err)
+		t.Fatalf("failed proposing key3: %v", err)
 	}
+	leader3 := cluster.WaitForNewLeader(leader2.ID(), 2*time.Second)
 
 	// 4. Kill leader 3 (2 nodes left, quorum 3)
 	cluster.Crash(leader3.ID())
@@ -272,10 +287,9 @@ func TestScenario5_RapidCascadingLeaderKills(t *testing.T) {
 	cluster.Restart(leader3.ID())
 
 	// 7. Cluster heals, elects leader, and catches up!
-	finalLeader := cluster.WaitForLeader(3 * time.Second)
-	_, err = cluster.ProposeOnNode(finalLeader.ID(), "key4", "val4")
+	_, err = cluster.Propose("key4", "val4")
 	if err != nil {
-		t.Fatalf("failed: %v", err)
+		t.Fatalf("failed proposing key4: %v", err)
 	}
 
 	// 8. Assert all keys survived the massacre

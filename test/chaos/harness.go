@@ -348,11 +348,28 @@ func (tc *TestCluster) Propose(key, val string) (uint64, error) {
 	for time.Now().Before(deadline) {
 		leaders := tc.GetLeaders()
 		if len(leaders) > 0 {
-			idx, err := leaders[0].ProposeCommand(b)
-			if err == nil {
-				return idx, nil
+			type result struct {
+				idx uint64
+				err error
 			}
-			lastErr = err
+			resCh := make(chan result, len(leaders))
+			for _, l := range leaders {
+				go func(leader *raft.RaftNode) {
+					idx, err := leader.ProposeCommand(b)
+					resCh <- result{idx, err}
+				}(l)
+			}
+
+			// Wait for success, but timeout quickly to loop and find new leaders if stuck on a zombie
+			select {
+			case res := <-resCh:
+				if res.err == nil {
+					return res.idx, nil
+				}
+				lastErr = res.err
+			case <-time.After(100 * time.Millisecond):
+				lastErr = errors.New("timeout waiting for leader to commit")
+			}
 		} else {
 			lastErr = errors.New("no leader found in the cluster")
 		}
