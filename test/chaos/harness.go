@@ -3,6 +3,9 @@ package chaos
 import (
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -182,7 +185,7 @@ type TestCluster struct {
 
 // NewTestCluster creates a multi-node cluster (typically 3 or 5 nodes)
 // with real bbolt persistence and an in-memory chaos router.
-func NewTestCluster(t *testing.T size int) *TestCluster {
+func NewTestCluster(t *testing.T, size int) *TestCluster {
 	t.Helper()
 
 	baseDir := t.TempDir()
@@ -204,8 +207,55 @@ func NewTestCluster(t *testing.T size int) *TestCluster {
 		baseDir: baseDir,
 	}
 
-	for _,id = range peerIDs {
+	for _, id = range peerIDs {
 		tc.createNode(id)
 	}
 	return tc
+}
+
+// createNode initializes a single node with its own bbolt DB and registers it on the network.
+func (tc *TestCluster) createNode(id string) {
+	tc.t.Helper()
+
+	// 1. Prepare peer list excluding self
+	var peers []rafr.PeerConfig
+	for _, p := range tc.peers {
+		if p != id {
+			peers = append(peers, raft.PeerConfig{ID: p})
+
+		}
+	}
+
+	// 2. Open node-specific bbolt database in temp dir
+	dbPath := filepath.Join(tc.baseDir, fmt.Sprintf("raft-%s.db", id))
+	store, err := storage.NewBboltStore(dbPath)
+	if err != nil {
+		tc.t.Fatalf("failed to create bbolt store for %s: %v", id, err)
+
+	}
+
+	kv := kvstore.NewKVStore()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// 3. Fast timeouts for speedy tests!
+	cfg := raft.DefaultConfig(id, peers)
+	cfg.ElectionTimeoutMin = 60 * time.Millisecond
+	cfg.ElectionTimeoutMax = 120 * time.Millisecond
+	cfg.HeartbeatInterval = 20 * time.Millisecond
+
+	node, err := raft.NewRaftNode(cfg, store, kv, logger)
+	if err != nil {
+		tc.t.Fatalf("failed to create raft node %s: %v", id, err)
+	}
+
+	// 4. Attach chaos transport and register on network
+	trans := NewTestTransport(id, tc.network)
+	node.SetTransport(trans)
+	tc.network.RegisterNode(node)
+
+	tc.nodes[id] = node
+	tc.stores[id] = store
+	tc.kvs[id] = kv
+	tc.dbPaths[id] = dbPath
+
 }
