@@ -436,7 +436,8 @@ func (tc *TestCluster) Heal() {
 
 // GetKV retrieves a key from a specific node's state machine.
 func (tc *TestCluster) GetKV(nodeID, key string) (string, bool) {
-	tc.mu.Unlock()
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
 	if kv, ok := tc.kvs[nodeID]; ok {
 		return kv.Get(key)
 	}
