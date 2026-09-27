@@ -1,6 +1,7 @@
 package chaos
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -282,4 +283,58 @@ func TestScenario5_RapidCascadingLeaderKills(t *testing.T) {
 	cluster.AssertAllKVConsistent("key2", "val2", 2*time.Second)
 	cluster.AssertAllKVConsistent("key3", "val3", 2*time.Second)
 	cluster.AssertAllKVConsistent("key4", "val4", 2*time.Second)
+}
+
+// Scenario 6: Full Regional Blackout
+// 1. Start 3-node cluster and commit 50 keys.
+// 2. Kill ALL nodes simultaneously (simulate full datacenter power loss).
+// 3. Restart ALL nodes simultaneously from disk.
+// 4. Commit 50 MORE keys.
+// 5. Verify all 100 keys are perfectly consistent across the cluster!
+func TestScenario6_FullRegionalBlackout(t *testing.T) {
+	cluster := NewTestCluster(t, 3)
+	cluster.Start()
+	defer cluster.Stop()
+
+	cluster.WaitForLeader(2 * time.Second)
+
+	// 1. Commit 50 keys
+	for i := 1; i <= 50; i++ {
+		key := fmt.Sprintf("key%d", i)
+		val := fmt.Sprintf("val%d", i)
+		_, err := cluster.Propose(key, val)
+		if err != nil {
+			t.Fatalf("failed writing %s: %v", key, err)
+		}
+	}
+
+	// 2. CHAOS: Complete Power Loss!
+	cluster.Crash("node1")
+	cluster.Crash("node2")
+	cluster.Crash("node3")
+
+	// 3. Power Restored: Reboot all nodes from disk
+	cluster.Restart("node1")
+	cluster.Restart("node2")
+	cluster.Restart("node3")
+
+	// 4. Wait for cluster to recover and elect leader
+	cluster.WaitForLeader(3 * time.Second)
+
+	// 5. Commit 50 MORE keys
+	for i := 51; i <= 100; i++ {
+		key := fmt.Sprintf("key%d", i)
+		val := fmt.Sprintf("val%d", i)
+		_, err := cluster.Propose(key, val)
+		if err != nil {
+			t.Fatalf("failed writing %s: %v", key, err)
+		}
+	}
+
+	// 6. Assert all 100 keys exist on all nodes identically
+	for i := 1; i <= 100; i++ {
+		key := fmt.Sprintf("key%d", i)
+		val := fmt.Sprintf("val%d", i)
+		cluster.AssertAllKVConsistent(key, val, 5*time.Second)
+	}
 }
