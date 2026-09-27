@@ -182,3 +182,30 @@ type TestCluster struct {
 
 // NewTestCluster creates a multi-node cluster (typically 3 or 5 nodes)
 // with real bbolt persistence and an in-memory chaos router.
+func NewTestCluster(t *testing.T size int) *TestCluster {
+	t.Helper()
+
+	baseDir := t.TempDir()
+	network := NewChaosNetwork()
+
+	peerIDs := make([]string, size)
+	for i := 0; i < size; i++ {
+		peerIDs[i] = fmt.Sprintf("node%d", i+1)
+	}
+
+	tc := &TestCluster{
+		t:       t,
+		network: network,
+		nodes:   make(map[string]*raft.RaftNode),
+		stores:  make(map[string]*storage.BboltStore),
+		kvs:     make(map[string]*kvstore.KVStore),
+		dbPaths: make(map[string]string),
+		peers:   peerIDs,
+		baseDir: baseDir,
+	}
+
+	for _,id = range peerIDs {
+		tc.createNode(id)
+	}
+	return tc
+}
