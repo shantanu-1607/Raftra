@@ -1,0 +1,20 @@
+# Git repository metadata
+.git
+
+# Antigravity / Gemini metadata
+.gemini
+
+# Local compiled binaries
+bin/
+raftra-server
+raftra-cli
+
+# Local persistence / test database directories
+data/
+data*/
+*.db
+*.lock
+
+# Logs
+*.log
+test_output.log

@@ -1,0 +1,75 @@
+services:
+  node1:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    container_name: raftra-node1
+    command: >
+      --id=node1
+      --host=0.0.0.0
+      --port=50051
+      --http-port=8001
+      --peers=node2:50051,node3:50051
+      --http-peers=node1:http://node1:8001,node2:http://node2:8001,node3:http://node3:8001
+      --data-dir=/data
+    ports:
+      - "50051:50051"
+      - "8001:8001"
+    volumes:
+      - node1-data:/data
+    networks:
+      - raftra-net
+    restart: unless-stopped
+
+  node2:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    container_name: raftra-node2
+    command: >
+      --id=node2
+      --host=0.0.0.0
+      --port=50051
+      --http-port=8001
+      --peers=node1:50051,node3:50051
+      --http-peers=node1:http://node1:8001,node2:http://node2:8001,node3:http://node3:8001
+      --data-dir=/data
+    ports:
+      - "50052:50051"
+      - "8002:8001"
+    volumes:
+      - node2-data:/data
+    networks:
+      - raftra-net
+    restart: unless-stopped
+
+  node3:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    container_name: raftra-node3
+    command: >
+      --id=node3
+      --host=0.0.0.0
+      --port=50051
+      --http-port=8001
+      --peers=node1:50051,node2:50051
+      --http-peers=node1:http://node1:8001,node2:http://node2:8001,node3:http://node3:8001
+      --data-dir=/data
+    ports:
+      - "50053:50051"
+      - "8003:8001"
+    volumes:
+      - node3-data:/data
+    networks:
+      - raftra-net
+    restart: unless-stopped
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
+
+networks:
+  raftra-net:
+    driver: bridge
