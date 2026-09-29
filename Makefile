@@ -1,4 +1,4 @@
-.PHONY: proto build test clean
+.PHONY: proto build test clean docker-build docker-up docker-down
 
 # Generate Go code from .proto files
 proto:
@@ -16,3 +16,14 @@ test:
 
 clean:
 	rm -rf bin/
+
+# Docker shortcuts
+docker-build:
+	docker build -f deployments/Dockerfile -t raftra:latest .
+
+docker-up:
+	docker compose -f deployments/docker-compose.yml up --build -d
+
+docker-down:
+	docker compose -f deployments/docker-compose.yml down -v
+

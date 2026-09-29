@@ -1111,9 +1111,9 @@ ENTRYPOINT ["raftra-server"]
 ```
 
 **Verification:**
-- [ ] `docker build -f deployments/Dockerfile -t raftra:latest .` succeeds
-- [ ] `docker image ls raftra` shows image size < 30MB
-- [ ] `docker run --rm raftra:latest --help` shows the expected flag output
+- [x] `docker build -f deployments/Dockerfile -t raftra:latest .` succeeds
+- [x] `docker image ls raftra` shows image size < 30MB (actual: ~31.9MB disk usage, 9.13MB content)
+- [x] `docker run --rm raftra:latest --help` shows the expected flag output
 
 ---
 
