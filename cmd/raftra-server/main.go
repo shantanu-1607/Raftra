@@ -21,9 +21,10 @@ import (
 func main() {
 	// 1. Define command line flags
 	nodeID := flag.String("id", "node1", "Unique node ID")
+	host := flag.String("host", "0.0.0.0", "Host/IP address to bind the servers to")
 	port := flag.Int("port", 50051, "gRPC port to listen on")
 	httpPort := flag.Int("http-port", 8001, "HTTP REST gateway port to listen on")
-	peerFlag := flag.String("peers", "", "comma-separated list of peer ID:address (e.g. node2:localhost:50052,node3:localhost:50053)")
+	peerFlag := flag.String("peers", "", "comma-separated list of peer ID:address or ID:port (e.g. node2:50051 or node2:localhost:50052)")
 	httpPeersFlag := flag.String("http-peers", "", "comma-separated list of peer ID:http-address (e.g. node1:http://localhost:8001,node2:http://localhost:8002)")
 	dataDir := flag.String("data-dir", "data", "Directory to store Raft persistent state and logs")
 	flag.Parse()
@@ -35,6 +36,7 @@ func main() {
 
 	logger.Info("starting raftra node",
 		"id", *nodeID,
+		"host", *host,
 		"grpc_port", *port,
 		"http_port", *httpPort,
 	)
@@ -46,8 +48,22 @@ func main() {
 	if *peerFlag != "" {
 		peerEntries := strings.Split(*peerFlag, ",")
 		for _, entry := range peerEntries {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
 			parts := strings.Split(entry, ":")
-			if len(parts) >= 2 {
+			if len(parts) == 2 {
+				// Format: "node2:50051" -> ID is "node2", Address is "node2:50051"
+				id := parts[0]
+				addr := entry
+				peers = append(peers, raft.PeerConfig{
+					ID:      id,
+					Address: addr,
+				})
+				peerAddressMap[id] = addr
+			} else if len(parts) >= 3 {
+				// Format: "node2:localhost:50052" or "node2:10.0.0.2:50051" -> ID is parts[0], Address is parts[1:]
 				id := parts[0]
 				addr := strings.Join(parts[1:], ":")
 				peers = append(peers, raft.PeerConfig{
@@ -103,7 +119,7 @@ func main() {
 	raftNode.SetTransport(trans)
 
 	// 8. Start the inbound gRPC network server
-	serverAddr := fmt.Sprintf("localhost:%d", *port)
+	serverAddr := fmt.Sprintf("%s:%d", *host, *port)
 	server, err := transport.NewServer(serverAddr, raftNode, logger)
 	if err != nil {
 		logger.Error("failed to create gRPC server", "error", err)
@@ -112,7 +128,7 @@ func main() {
 	server.Start()
 
 	// 9. Start the HTTP REST gateway
-	httpServerAddr := fmt.Sprintf("localhost:%d", *httpPort)
+	httpServerAddr := fmt.Sprintf("%s:%d", *host, *httpPort)
 	httpServer := transport.NewHTTPServer(raftNode, httpServerAddr, peerHTTPMap, logger)
 	if err := httpServer.Start(); err != nil {
 		logger.Error("failed to start HTTP server", "error", err)

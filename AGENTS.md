@@ -87,3 +87,5 @@ Modifications must strictly uphold the following Raft safety properties:
 - **Run tests:** Always run `make test` (which includes race detection) after modifying concurrent code.
 - **Do not introduce new dependencies** unless strictly necessary.
 - **Do not change public APIs or wire formats** unnecessarily.
+- **Interactive User Testing Mode:** When it comes to testing, DO NOT run test/run commands directly in the background. Always provide the command to the user, explain what it is for, and provide the expected results so the user can run it in their terminal and compare the output themselves to maximize hands-on learning.
+
