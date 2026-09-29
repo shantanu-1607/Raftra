@@ -9,6 +9,7 @@ proto:
 # Build all binaries
 build:
 	go build -o bin/raftra-server ./cmd/raftra-server
+	go build -o bin/raftra-cli ./cmd/raftra-cli
 
 # Run unit tests with Go's race detector enabled
 test:

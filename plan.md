@@ -1249,11 +1249,11 @@ curl http://localhost:8001/api/v1/kv/city  # should return "mumbai"
 docker compose -f deployments/docker-compose.yml down -v
 ```
 
-- [ ] `docker compose up --build -d` starts all 3 containers
-- [ ] Exactly one node shows `"is_leader": true` via `/status`
-- [ ] PUT on leader returns success; GET on follower returns the value
-- [ ] `docker compose stop node1` triggers re-election within seconds
-- [ ] Restarted node catches up on missed log entries
+- [x] `docker compose up --build -d` starts all 3 containers
+- [x] Exactly one node shows `"is_leader": true` via `/status`
+- [x] PUT on leader returns success; GET on follower returns the value
+- [x] `docker compose stop node1` triggers re-election within seconds
+- [x] Restarted node catches up on missed log entries
 
 ---
 
@@ -1314,8 +1314,8 @@ raftra-cli --addr=http://localhost:8001 status
 ### Phase 6 Verification (Complete Checklist)
 
 - [x] **Step 1:** `-host` flag defaults to `0.0.0.0`, peer parsing handles Docker DNS format
-- [ ] **Step 2:** Docker image builds, < 30MB, `--help` works inside container
-- [ ] **Step 3:** `docker compose up` starts 3-node cluster, election succeeds, `curl` PUT/GET works, failover and recovery work
+- [x] **Step 2:** Docker image builds, < 30MB, `--help` works inside container
+- [x] **Step 3:** `docker compose up` starts 3-node cluster, election succeeds, `curl` PUT/GET works, failover and recovery work
 - [ ] **Step 4:** CLI compiles, set/get/delete/status commands work, auto-redirect works
 - [ ] **Step 5:** Full end-to-end chaos scenario passes with CLI + Docker cluster
 
