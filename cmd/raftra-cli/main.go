@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,15 +15,28 @@ import (
 	"time"
 )
 
-// ANSI color codes for formatted terminal output
+const version = "0.1.0"
+
+// ============================================================
+// ANSI Escape Codes
+// ============================================================
+
 const (
 	colorReset  = "\033[0m"
+	colorBold   = "\033[1m"
+	colorDim    = "\033[2m"
 	colorRed    = "\033[31m"
 	colorGreen  = "\033[32m"
 	colorYellow = "\033[33m"
 	colorCyan   = "\033[36m"
-	colorBold   = "\033[1m"
+	hideCursor  = "\033[?25l"
+	showCursor  = "\033[?25h"
+	clearLine   = "\033[2K"
 )
+
+// ============================================================
+// Data Types (match the Raftra HTTP API responses)
+// ============================================================
 
 // StatusResponse matches the JSON structure returned by GET /status
 type StatusResponse struct {
@@ -43,33 +57,308 @@ type KVResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
-func printUsage() {
-	fmt.Printf(`%sRaftra CLI%s — Command-line client for the Raftra distributed key-value store
+// ============================================================
+// Gradient & Color Engine (24-bit True Color)
+// ============================================================
 
-%sUSAGE:%s
-  raftra-cli                      (Starts Interactive Mode! ✨)
-  raftra-cli [flags] <command>    (One-off execution)
+// hslToRGB converts HSL color values (h: 0-360, s: 0-1, l: 0-1) to RGB (0-255).
+func hslToRGB(h, s, l float64) (int, int, int) {
+	c := (1 - math.Abs(2*l-1)) * s
+	hp := h / 60.0
+	x := c * (1 - math.Abs(math.Mod(hp, 2)-1))
+	m := l - c/2
 
-%sCOMMANDS:%s
-  %sset%s <key> <value>   Set a key-value pair
-  %sget%s <key>           Get the value of a key
-  %sdelete%s <key>        Delete a key
-  %sstatus%s              Show the Raft state of the targeted node
+	var r, g, b float64
+	switch {
+	case hp < 1:
+		r, g, b = c, x, 0
+	case hp < 2:
+		r, g, b = x, c, 0
+	case hp < 3:
+		r, g, b = 0, c, x
+	case hp < 4:
+		r, g, b = 0, x, c
+	case hp < 5:
+		r, g, b = x, 0, c
+	default:
+		r, g, b = c, 0, x
+	}
 
-%sFLAGS:%s
-  --addr string         HTTP address of the Raftra node (default: "http://localhost:8001")
-  --help                Show this help message
-`,
-		colorBold, colorReset,
-		colorBold, colorReset,
-		colorBold, colorReset,
-		colorCyan, colorReset,
-		colorCyan, colorReset,
-		colorCyan, colorReset,
-		colorCyan, colorReset,
-		colorBold, colorReset,
-	)
+	return clamp(int((r + m) * 255)), clamp(int((g + m) * 255)), clamp(int((b + m) * 255))
 }
+
+func clamp(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return v
+}
+
+// rgb returns an ANSI 24-bit foreground color escape sequence.
+func rgb(r, g, b int) string {
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
+}
+
+// renderGradientLine applies a horizontal hue gradient across a string of text.
+// hueStart is the starting hue (0-360), hueSpan is how much hue to sweep across the line.
+func renderGradientLine(line string, hueStart, hueSpan, saturation, lightness float64) string {
+	var sb strings.Builder
+	runes := []rune(line)
+	n := len(runes)
+	if n == 0 {
+		return ""
+	}
+	for i, ch := range runes {
+		t := float64(i) / float64(n)
+		hue := math.Mod(hueStart+t*hueSpan, 360.0)
+		if hue < 0 {
+			hue += 360
+		}
+		r, g, b := hslToRGB(hue, saturation, lightness)
+		sb.WriteString(rgb(r, g, b))
+		sb.WriteRune(ch)
+	}
+	sb.WriteString(colorReset)
+	return sb.String()
+}
+
+// gradientText applies a gradient to an entire string (used for short labels).
+func gradientText(text string, hueStart float64) string {
+	return renderGradientLine(text, hueStart, 80.0, 0.8, 0.65)
+}
+
+// ============================================================
+// ASCII Art Banner
+// ============================================================
+
+var banner = []string{
+	`  ██████╗   █████╗  ███████╗ ████████╗ ██████╗   █████╗ `,
+	`  ██╔══██╗ ██╔══██╗ ██╔════╝ ╚══██╔══╝ ██╔══██╗ ██╔══██╗`,
+	`  ██████╔╝ ███████║ █████╗      ██║    ██████╔╝ ███████║`,
+	`  ██╔══██╗ ██╔══██║ ██╔══╝      ██║    ██╔══██╗ ██╔══██║`,
+	`  ██║  ██║ ██║  ██║ ██║         ██║    ██║  ██║ ██║  ██║`,
+	`  ╚═╝  ╚═╝ ╚═╝  ╚═╝ ╚═╝         ╚═╝    ╚═╝  ╚═╝ ╚═╝  ╚═╝`,
+}
+
+// renderBannerFrame renders all banner lines with a given hue offset for animation.
+func renderBannerFrame(hueOffset float64) string {
+	var sb strings.Builder
+	for i, line := range banner {
+		// Each successive line starts slightly further along the hue wheel
+		lineHue := hueOffset + float64(i)*12.0
+		sb.WriteString(renderGradientLine(line, lineHue, 120.0, 0.85, 0.62))
+		if i < len(banner)-1 {
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
+// ============================================================
+// Animation System
+// ============================================================
+
+// animateBanner displays the banner with a line-by-line reveal, then shimmers the gradient.
+func animateBanner() {
+	fmt.Print(hideCursor)
+
+	bannerHeight := len(banner)
+	baseHue := 260.0 // Start from purple/violet
+
+	// --- Phase 1: Reveal lines one-by-one ---
+	for i := 0; i < bannerHeight; i++ {
+		lineHue := baseHue + float64(i)*12.0
+		fmt.Println(renderGradientLine(banner[i], lineHue, 120.0, 0.85, 0.62))
+		time.Sleep(55 * time.Millisecond)
+	}
+
+	// --- Phase 2: Shimmer — slide the gradient hue across the banner ---
+	shimmerFrames := 35
+	for frame := 0; frame < shimmerFrames; frame++ {
+		// Move cursor back up to the top of the banner
+		fmt.Printf("\033[%dA", bannerHeight)
+
+		hueOffset := baseHue + float64(frame)*6.0
+		for i, line := range banner {
+			lineHue := hueOffset + float64(i)*12.0
+			fmt.Print(clearLine)
+			fmt.Println(renderGradientLine(line, lineHue, 120.0, 0.85, 0.62))
+		}
+		time.Sleep(45 * time.Millisecond)
+	}
+
+	fmt.Print(showCursor)
+}
+
+// typeWriter prints text one character at a time for a cinematic feel.
+func typeWriter(text string, charDelay time.Duration) {
+	for _, ch := range text {
+		fmt.Printf("%c", ch)
+		time.Sleep(charDelay)
+	}
+	fmt.Println()
+}
+
+// ============================================================
+// Loading Spinner (shown while HTTP requests are in-flight)
+// ============================================================
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+type spinner struct {
+	done chan struct{}
+}
+
+func startSpinner(label string) *spinner {
+	s := &spinner{done: make(chan struct{})}
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-s.done:
+				fmt.Printf("\r%s\r", clearLine)
+				return
+			default:
+				hue := float64(260 + (i*10)%100)
+				r, g, b := hslToRGB(hue, 0.8, 0.65)
+				fmt.Printf("\r  %s%s%s %s%s%s",
+					rgb(r, g, b), spinnerFrames[i%len(spinnerFrames)], colorReset,
+					colorDim, label, colorReset)
+				i++
+				time.Sleep(80 * time.Millisecond)
+			}
+		}
+	}()
+	return s
+}
+
+func (s *spinner) stop() {
+	close(s.done)
+	time.Sleep(90 * time.Millisecond) // Let goroutine clean up
+}
+
+// ============================================================
+// Prompt Rendering
+// ============================================================
+
+// prompt returns the colorful interactive prompt string.
+func prompt() string {
+	// Colored dot + gradient "raftra" + arrow
+	r, g, b := hslToRGB(280, 0.9, 0.7)
+	dot := fmt.Sprintf("%s●%s", rgb(r, g, b), colorReset)
+	name := gradientText("raftra", 260)
+	r2, g2, b2 := hslToRGB(320, 0.7, 0.65)
+	arrow := fmt.Sprintf("%s❯%s", rgb(r2, g2, b2), colorReset)
+	return fmt.Sprintf("%s %s %s ", dot, name, arrow)
+}
+
+// ============================================================
+// Separator & Formatted Output
+// ============================================================
+
+func printSeparator() {
+	line := strings.Repeat("─", 50)
+	fmt.Println(renderGradientLine(line, 260, 100, 0.5, 0.45))
+}
+
+// ============================================================
+// Interactive Mode
+// ============================================================
+
+func runInteractiveMode(addr string, parsedBase *url.URL) {
+	fmt.Println() // Breathing room
+
+	// --- Animated banner ---
+	animateBanner()
+
+	// --- Tagline with typewriter effect ---
+	fmt.Println()
+	fmt.Print(hideCursor)
+	tagline := "  Distributed consensus at your fingertips."
+	typeWriter(gradientText(tagline, 270), 25*time.Millisecond)
+	fmt.Print(showCursor)
+
+	// --- Info block ---
+	fmt.Println()
+	printSeparator()
+	r, g, b := hslToRGB(280, 0.7, 0.7)
+	fmt.Printf("  %sv%s%s  •  ", rgb(r, g, b), version, colorReset)
+	r2, g2, b2 := hslToRGB(200, 0.6, 0.65)
+	fmt.Printf("%s%s%s\n", rgb(r2, g2, b2), addr, colorReset)
+	printSeparator()
+	fmt.Printf("  Type %shelp%s for commands, %sexit%s to quit.\n\n",
+		colorBold, colorReset, colorBold, colorReset)
+
+	// --- REPL Loop ---
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Print(prompt())
+		if !scanner.Scan() {
+			fmt.Println() // Clean exit on Ctrl+D
+			break
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		args := strings.Fields(line)
+		cmd := strings.ToLower(args[0])
+
+		switch cmd {
+		case "exit", "quit":
+			printSeparator()
+			fmt.Printf("  %s👋 Goodbye!%s\n\n", colorDim, colorReset)
+			return
+
+		case "help":
+			fmt.Println()
+			printSeparator()
+			fmt.Println(gradientText("  Commands", 260))
+			printSeparator()
+			fmt.Printf("  %sstatus%s            Show cluster node status\n", colorBold, colorReset)
+			fmt.Printf("  %sset%s <key> <value>  Store a key-value pair\n", colorBold, colorReset)
+			fmt.Printf("  %sget%s <key>          Retrieve a value by key\n", colorBold, colorReset)
+			fmt.Printf("  %sdelete%s <key>       Remove a key from the store\n", colorBold, colorReset)
+			fmt.Printf("  %sexit%s               Quit the CLI\n", colorBold, colorReset)
+			printSeparator()
+			fmt.Println()
+
+		default:
+			runCommand(args, addr, parsedBase)
+		}
+	}
+}
+
+// ============================================================
+// Usage (for one-off mode / --help)
+// ============================================================
+
+func printUsage() {
+	fmt.Println()
+	// Static gradient banner (no animation for --help)
+	fmt.Println(renderBannerFrame(260))
+	fmt.Println()
+	fmt.Printf("  %sRaftra CLI%s v%s — Distributed key-value store client\n\n", colorBold, colorReset, version)
+	fmt.Printf("  %sUSAGE%s\n", colorBold, colorReset)
+	fmt.Printf("    raftra-cli                        Start interactive mode\n")
+	fmt.Printf("    raftra-cli [flags] <command>       Run a single command\n\n")
+	fmt.Printf("  %sCOMMANDS%s\n", colorBold, colorReset)
+	fmt.Printf("    %sstatus%s                          Show cluster node status\n", colorCyan, colorReset)
+	fmt.Printf("    %sset%s    <key> <value>             Store a key-value pair\n", colorCyan, colorReset)
+	fmt.Printf("    %sget%s    <key>                     Retrieve a value\n", colorCyan, colorReset)
+	fmt.Printf("    %sdelete%s <key>                     Remove a key\n\n", colorCyan, colorReset)
+	fmt.Printf("  %sFLAGS%s\n", colorBold, colorReset)
+	fmt.Printf("    --addr string    Node address (default: http://localhost:8001)\n")
+	fmt.Printf("    --help           Show this help message\n\n")
+}
+
+// ============================================================
+// Entry Point
+// ============================================================
 
 func main() {
 	var addr string
@@ -85,70 +374,25 @@ func main() {
 
 	parsedBase, err := url.Parse(addr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%sError:%s Invalid node address %q: %v\n", colorRed, colorReset, addr, err)
+		fmt.Fprintf(os.Stderr, "  %s✗ Error:%s Invalid node address %q: %v\n", colorRed, colorReset, addr, err)
 		os.Exit(1)
 	}
 
 	args := flag.Args()
 
-	// INTERACTIVE MODE
+	// No arguments → launch interactive REPL
 	if len(args) == 0 {
 		runInteractiveMode(addr, parsedBase)
 		return
 	}
 
-	// ONE-OFF COMMAND MODE
+	// Otherwise → one-off command execution
 	runCommand(args, addr, parsedBase)
 }
 
-func runInteractiveMode(addr string, parsedBase *url.URL) {
-	fmt.Printf("%s", colorCyan)
-	fmt.Println("\n" +
-		"    ____        __  __            \n" +
-		"   / __ \\____ _/ /_/ /__________ _\n" +
-		"  / /_/ / __ `/ __/ __/ ___/ __ `/\n" +
-		" / _, _/ /_/ / /_/ /_/ /  / /_/ / \n" +
-		"/_/ |_|\\__,_/\\__/\\__/_/   \\__,_/  \n" +
-		"                                  ")
-	fmt.Printf("%s", colorReset)
-	fmt.Printf("Welcome to the %sRaftra Interactive CLI%s! 🚀\n", colorBold, colorReset)
-	fmt.Printf("Connected to: %s%s%s\n", colorGreen, addr, colorReset)
-	fmt.Println("Type 'help' for commands, or 'exit' to quit.\n")
-
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Printf("%sraftra>%s ", colorCyan, colorReset)
-		if !scanner.Scan() {
-			break // EOF (Ctrl+D)
-		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		args := strings.Fields(line)
-		cmd := strings.ToLower(args[0])
-
-		if cmd == "exit" || cmd == "quit" {
-			fmt.Println("Goodbye! 👋")
-			break
-		}
-
-		if cmd == "help" {
-			fmt.Println(`
-  Commands:
-    status            - Show cluster status
-    set <key> <value> - Set a key-value pair
-    get <key>         - Get a key
-    delete <key>      - Delete a key
-    exit              - Quit the interactive CLI
-			`)
-			continue
-		}
-
-		runCommand(args, addr, parsedBase)
-	}
-}
+// ============================================================
+// Command Router
+// ============================================================
 
 func runCommand(args []string, addr string, parsedBase *url.URL) {
 	command := strings.ToLower(args[0])
@@ -159,14 +403,14 @@ func runCommand(args []string, addr string, parsedBase *url.URL) {
 
 	case "get":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "%sError:%s 'get' requires a key. Example: get <key>\n", colorRed, colorReset)
+			fmt.Fprintf(os.Stderr, "  %s✗%s 'get' requires a key. Usage: %sget <key>%s\n", colorRed, colorReset, colorBold, colorReset)
 			return
 		}
 		handleGet(addr, parsedBase, args[1])
 
 	case "set":
 		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "%sError:%s 'set' requires key and value. Example: set <key> <value>\n", colorRed, colorReset)
+			fmt.Fprintf(os.Stderr, "  %s✗%s 'set' requires key and value. Usage: %sset <key> <value>%s\n", colorRed, colorReset, colorBold, colorReset)
 			return
 		}
 		val := strings.Join(args[2:], " ")
@@ -174,15 +418,19 @@ func runCommand(args []string, addr string, parsedBase *url.URL) {
 
 	case "delete", "del":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "%sError:%s 'delete' requires a key. Example: delete <key>\n", colorRed, colorReset)
+			fmt.Fprintf(os.Stderr, "  %s✗%s 'delete' requires a key. Usage: %sdelete <key>%s\n", colorRed, colorReset, colorBold, colorReset)
 			return
 		}
 		handleDelete(addr, parsedBase, args[1])
 
 	default:
-		fmt.Fprintf(os.Stderr, "%sError:%s Unknown command %q\n", colorRed, colorReset, command)
+		fmt.Fprintf(os.Stderr, "  %s✗%s Unknown command %q. Type %shelp%s for usage.\n", colorRed, colorReset, command, colorBold, colorReset)
 	}
 }
+
+// ============================================================
+// HTTP Client — Redirect-Aware Request Engine
+// ============================================================
 
 // translateRedirectURL bridges Docker internal service names (node1, node2, node3)
 // to host-accessible ports (localhost:8001, localhost:8002, localhost:8003)
@@ -256,8 +504,9 @@ func executeRequest(method, targetURL string, body []byte, initialURL *url.URL) 
 			locURL = translateRedirectURL(locURL, initialURL)
 			currentURL = locURL.String()
 
-			fmt.Printf("%s↳ [redirect]%s Follower redirecting to leader at %s%s%s\n",
-				colorYellow, colorReset, colorCyan, currentURL, colorReset)
+			r, g, b := hslToRGB(45, 0.8, 0.6) // Warm amber for redirect notices
+			fmt.Printf("  %s↳%s Redirecting to leader → %s%s%s\n",
+				rgb(r, g, b), colorReset, colorBold, currentURL, colorReset)
 			continue
 		}
 
@@ -271,105 +520,138 @@ func executeRequest(method, targetURL string, body []byte, initialURL *url.URL) 
 	}
 }
 
+// ============================================================
+// Command Handlers
+// ============================================================
+
 func handleStatus(baseURL string, parsedBase *url.URL) {
+	sp := startSpinner("Fetching node status...")
 	targetURL := baseURL + "/status"
 	resp, body, err := executeRequest("GET", targetURL, nil, parsedBase)
+	sp.stop()
+
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%sError:%s %v\n", colorRed, colorReset, err)
+		fmt.Fprintf(os.Stderr, "  %s✗%s %v\n", colorRed, colorReset, err)
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "%sError:%s Node returned HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
+		fmt.Fprintf(os.Stderr, "  %s✗%s Node returned HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
 		return
 	}
 
 	var status StatusResponse
 	if err := json.Unmarshal(body, &status); err != nil {
-		fmt.Fprintf(os.Stderr, "%sError:%s Failed to parse status response: %v\n", colorRed, colorReset, err)
+		fmt.Fprintf(os.Stderr, "  %s✗%s Failed to parse response: %v\n", colorRed, colorReset, err)
 		return
 	}
 
-	roleColor := colorYellow
+	// Render a beautiful status card
+	fmt.Println()
+	printSeparator()
+	fmt.Println(gradientText("  Node Status", 260))
+	printSeparator()
+
+	// Role with contextual color
+	var roleDisplay string
 	if status.IsLeader {
-		roleColor = colorGreen
+		r, g, b := hslToRGB(140, 0.8, 0.5)
+		roleDisplay = fmt.Sprintf("%s★ %s (Leader)%s", rgb(r, g, b), status.Role, colorReset)
+	} else {
+		r, g, b := hslToRGB(40, 0.7, 0.6)
+		roleDisplay = fmt.Sprintf("%s◦ %s%s", rgb(r, g, b), status.Role, colorReset)
 	}
 
-	fmt.Printf("%s=== Raftra Node Status ===%s\n", colorBold, colorReset)
-	fmt.Printf("  Role:         %s%s%s\n", roleColor, status.Role, colorReset)
-	fmt.Printf("  Term:         %d\n", status.Term)
-	fmt.Printf("  Is Leader:    %t\n", status.IsLeader)
-	fmt.Printf("  Leader ID:    %s\n", status.LeaderID)
-	fmt.Printf("  Commit Index: %d\n", status.CommitIndex)
-	fmt.Printf("  Last Applied: %d\n", status.LastApplied)
+	fmt.Printf("  Role          %s\n", roleDisplay)
+	fmt.Printf("  Term          %s%d%s\n", colorBold, status.Term, colorReset)
+	fmt.Printf("  Leader        %s%s%s\n", colorBold, status.LeaderID, colorReset)
+	fmt.Printf("  Commit Index  %d\n", status.CommitIndex)
+	fmt.Printf("  Last Applied  %d\n", status.LastApplied)
+	printSeparator()
+	fmt.Println()
 }
 
 func handleGet(baseURL string, parsedBase *url.URL, key string) {
+	sp := startSpinner("Reading key...")
 	targetURL := fmt.Sprintf("%s/api/v1/kv/%s", baseURL, url.PathEscape(key))
 	resp, body, err := executeRequest("GET", targetURL, nil, parsedBase)
+	sp.stop()
+
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%sError:%s %v\n", colorRed, colorReset, err)
+		fmt.Fprintf(os.Stderr, "  %s✗%s %v\n", colorRed, colorReset, err)
 		return
 	}
 
 	if resp.StatusCode == http.StatusNotFound {
-		fmt.Printf("%sKey not found:%s %s\n", colorYellow, colorReset, key)
+		r, g, b := hslToRGB(40, 0.8, 0.6)
+		fmt.Printf("  %s⚠ Key not found:%s %s\n", rgb(r, g, b), colorReset, key)
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "%sError:%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
+		fmt.Fprintf(os.Stderr, "  %s✗%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
 		return
 	}
 
 	var kv KVResponse
 	if err := json.Unmarshal(body, &kv); err != nil {
 		// If response is raw string, display directly
-		fmt.Println(string(body))
+		fmt.Printf("  %s\n", string(body))
 		return
 	}
 
-	fmt.Println(kv.Value)
+	r, g, b := hslToRGB(280, 0.6, 0.7)
+	fmt.Printf("  %s%s%s → %s%s%s\n", rgb(r, g, b), key, colorReset, colorBold, kv.Value, colorReset)
 }
 
 func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
+	sp := startSpinner("Writing to cluster...")
 	targetURL := fmt.Sprintf("%s/api/v1/kv/%s", baseURL, url.PathEscape(key))
 	resp, body, err := executeRequest("PUT", targetURL, []byte(value), parsedBase)
+	sp.stop()
+
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%sError:%s %v\n", colorRed, colorReset, err)
+		fmt.Fprintf(os.Stderr, "  %s✗%s %v\n", colorRed, colorReset, err)
 		return
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable {
-		fmt.Fprintf(os.Stderr, "%sError:%s Cluster has no elected leader right now. Try again in a moment.\n", colorYellow, colorReset)
+		r, g, b := hslToRGB(40, 0.8, 0.6)
+		fmt.Fprintf(os.Stderr, "  %s⚠%s No elected leader. Try again in a moment.\n", rgb(r, g, b), colorReset)
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		fmt.Fprintf(os.Stderr, "%sError:%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
+		fmt.Fprintf(os.Stderr, "  %s✗%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
 		return
 	}
 
-	fmt.Printf("%s✔ OK%s [key=%s%s%s]\n", colorGreen, colorReset, colorBold, key, colorReset)
+	r, g, b := hslToRGB(140, 0.8, 0.5)
+	fmt.Printf("  %s✔%s %s%s%s = %s\n", rgb(r, g, b), colorReset, colorBold, key, colorReset, value)
 }
 
 func handleDelete(baseURL string, parsedBase *url.URL, key string) {
+	sp := startSpinner("Deleting from cluster...")
 	targetURL := fmt.Sprintf("%s/api/v1/kv/%s", baseURL, url.PathEscape(key))
 	resp, body, err := executeRequest("DELETE", targetURL, nil, parsedBase)
+	sp.stop()
+
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%sError:%s %v\n", colorRed, colorReset, err)
+		fmt.Fprintf(os.Stderr, "  %s✗%s %v\n", colorRed, colorReset, err)
 		return
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable {
-		fmt.Fprintf(os.Stderr, "%sError:%s Cluster has no elected leader right now. Try again in a moment.\n", colorYellow, colorReset)
+		r, g, b := hslToRGB(40, 0.8, 0.6)
+		fmt.Fprintf(os.Stderr, "  %s⚠%s No elected leader. Try again in a moment.\n", rgb(r, g, b), colorReset)
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "%sError:%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
+		fmt.Fprintf(os.Stderr, "  %s✗%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
 		return
 	}
 
-	fmt.Printf("%s✔ Deleted%s [key=%s%s%s]\n", colorGreen, colorReset, colorBold, key, colorReset)
+	r, g, b := hslToRGB(140, 0.8, 0.5)
+	fmt.Printf("  %s✔%s Deleted %s%s%s\n", rgb(r, g, b), colorReset, colorBold, key, colorReset)
 }
