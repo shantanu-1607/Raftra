@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -46,23 +47,18 @@ func printUsage() {
 	fmt.Printf(`%sRaftra CLI%s — Command-line client for the Raftra distributed key-value store
 
 %sUSAGE:%s
-  raftra-cli [flags] <command> [arguments...]
+  raftra-cli                      (Starts Interactive Mode! ✨)
+  raftra-cli [flags] <command>    (One-off execution)
 
 %sCOMMANDS:%s
-  %sset%s <key> <value>   Set a key-value pair (auto-redirects to leader)
+  %sset%s <key> <value>   Set a key-value pair
   %sget%s <key>           Get the value of a key
-  %sdelete%s <key>        Delete a key (auto-redirects to leader)
+  %sdelete%s <key>        Delete a key
   %sstatus%s              Show the Raft state of the targeted node
 
 %sFLAGS:%s
   --addr string         HTTP address of the Raftra node (default: "http://localhost:8001")
   --help                Show this help message
-
-%sEXAMPLES:%s
-  raftra-cli set name shantanu
-  raftra-cli --addr=http://localhost:8002 get name
-  raftra-cli --addr=http://localhost:8003 delete name
-  raftra-cli --addr=http://localhost:8002 status
 `,
 		colorBold, colorReset,
 		colorBold, colorReset,
@@ -72,7 +68,6 @@ func printUsage() {
 		colorCyan, colorReset,
 		colorCyan, colorReset,
 		colorBold, colorReset,
-		colorBold, colorReset,
 	)
 }
 
@@ -81,12 +76,6 @@ func main() {
 	flag.StringVar(&addr, "addr", "http://localhost:8001", "HTTP address of the Raftra node")
 	flag.Usage = printUsage
 	flag.Parse()
-
-	args := flag.Args()
-	if len(args) == 0 {
-		printUsage()
-		os.Exit(1)
-	}
 
 	// Normalize base URL
 	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
@@ -100,6 +89,68 @@ func main() {
 		os.Exit(1)
 	}
 
+	args := flag.Args()
+
+	// INTERACTIVE MODE
+	if len(args) == 0 {
+		runInteractiveMode(addr, parsedBase)
+		return
+	}
+
+	// ONE-OFF COMMAND MODE
+	runCommand(args, addr, parsedBase)
+}
+
+func runInteractiveMode(addr string, parsedBase *url.URL) {
+	fmt.Printf("%s", colorCyan)
+	fmt.Println("\n" +
+		"    ____        __  __            \n" +
+		"   / __ \\____ _/ /_/ /__________ _\n" +
+		"  / /_/ / __ `/ __/ __/ ___/ __ `/\n" +
+		" / _, _/ /_/ / /_/ /_/ /  / /_/ / \n" +
+		"/_/ |_|\\__,_/\\__/\\__/_/   \\__,_/  \n" +
+		"                                  ")
+	fmt.Printf("%s", colorReset)
+	fmt.Printf("Welcome to the %sRaftra Interactive CLI%s! 🚀\n", colorBold, colorReset)
+	fmt.Printf("Connected to: %s%s%s\n", colorGreen, addr, colorReset)
+	fmt.Println("Type 'help' for commands, or 'exit' to quit.\n")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		fmt.Printf("%sraftra>%s ", colorCyan, colorReset)
+		if !scanner.Scan() {
+			break // EOF (Ctrl+D)
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		args := strings.Fields(line)
+		cmd := strings.ToLower(args[0])
+
+		if cmd == "exit" || cmd == "quit" {
+			fmt.Println("Goodbye! 👋")
+			break
+		}
+
+		if cmd == "help" {
+			fmt.Println(`
+  Commands:
+    status            - Show cluster status
+    set <key> <value> - Set a key-value pair
+    get <key>         - Get a key
+    delete <key>      - Delete a key
+    exit              - Quit the interactive CLI
+			`)
+			continue
+		}
+
+		runCommand(args, addr, parsedBase)
+	}
+}
+
+func runCommand(args []string, addr string, parsedBase *url.URL) {
 	command := strings.ToLower(args[0])
 
 	switch command {
@@ -108,31 +159,28 @@ func main() {
 
 	case "get":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "%sError:%s 'get' requires a key. Example: raftra-cli get <key>\n", colorRed, colorReset)
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "%sError:%s 'get' requires a key. Example: get <key>\n", colorRed, colorReset)
+			return
 		}
 		handleGet(addr, parsedBase, args[1])
 
 	case "set":
 		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "%sError:%s 'set' requires key and value. Example: raftra-cli set <key> <value>\n", colorRed, colorReset)
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "%sError:%s 'set' requires key and value. Example: set <key> <value>\n", colorRed, colorReset)
+			return
 		}
-		// Join remaining arguments so values with spaces are preserved
 		val := strings.Join(args[2:], " ")
 		handleSet(addr, parsedBase, args[1], val)
 
 	case "delete", "del":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "%sError:%s 'delete' requires a key. Example: raftra-cli delete <key>\n", colorRed, colorReset)
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "%sError:%s 'delete' requires a key. Example: delete <key>\n", colorRed, colorReset)
+			return
 		}
 		handleDelete(addr, parsedBase, args[1])
 
 	default:
-		fmt.Fprintf(os.Stderr, "%sError:%s Unknown command %q\n\n", colorRed, colorReset, command)
-		printUsage()
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "%sError:%s Unknown command %q\n", colorRed, colorReset, command)
 	}
 }
 
@@ -228,18 +276,18 @@ func handleStatus(baseURL string, parsedBase *url.URL) {
 	resp, body, err := executeRequest("GET", targetURL, nil, parsedBase)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%sError:%s %v\n", colorRed, colorReset, err)
-		os.Exit(1)
+		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "%sError:%s Node returned HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
-		os.Exit(1)
+		return
 	}
 
 	var status StatusResponse
 	if err := json.Unmarshal(body, &status); err != nil {
 		fmt.Fprintf(os.Stderr, "%sError:%s Failed to parse status response: %v\n", colorRed, colorReset, err)
-		os.Exit(1)
+		return
 	}
 
 	roleColor := colorYellow
@@ -261,7 +309,7 @@ func handleGet(baseURL string, parsedBase *url.URL, key string) {
 	resp, body, err := executeRequest("GET", targetURL, nil, parsedBase)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%sError:%s %v\n", colorRed, colorReset, err)
-		os.Exit(1)
+		return
 	}
 
 	if resp.StatusCode == http.StatusNotFound {
@@ -271,7 +319,7 @@ func handleGet(baseURL string, parsedBase *url.URL, key string) {
 
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "%sError:%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
-		os.Exit(1)
+		return
 	}
 
 	var kv KVResponse
@@ -289,17 +337,17 @@ func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
 	resp, body, err := executeRequest("PUT", targetURL, []byte(value), parsedBase)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%sError:%s %v\n", colorRed, colorReset, err)
-		os.Exit(1)
+		return
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable {
 		fmt.Fprintf(os.Stderr, "%sError:%s Cluster has no elected leader right now. Try again in a moment.\n", colorYellow, colorReset)
-		os.Exit(1)
+		return
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		fmt.Fprintf(os.Stderr, "%sError:%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
-		os.Exit(1)
+		return
 	}
 
 	fmt.Printf("%s✔ OK%s [key=%s%s%s]\n", colorGreen, colorReset, colorBold, key, colorReset)
@@ -310,17 +358,17 @@ func handleDelete(baseURL string, parsedBase *url.URL, key string) {
 	resp, body, err := executeRequest("DELETE", targetURL, nil, parsedBase)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%sError:%s %v\n", colorRed, colorReset, err)
-		os.Exit(1)
+		return
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable {
 		fmt.Fprintf(os.Stderr, "%sError:%s Cluster has no elected leader right now. Try again in a moment.\n", colorYellow, colorReset)
-		os.Exit(1)
+		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "%sError:%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
-		os.Exit(1)
+		return
 	}
 
 	fmt.Printf("%s✔ Deleted%s [key=%s%s%s]\n", colorGreen, colorReset, colorBold, key, colorReset)
