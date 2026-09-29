@@ -1055,86 +1055,150 @@ func (t *TestTransport) SendAppendEntries(peer string, req *AppendEntriesRequest
 ## Phase 6 — Deployment & CLI (Day 9, First Half)
 
 ### Objective
-Dockerize the system, create the CLI client, and set up Docker Compose for easy 3-node cluster management.
+Dockerize the system, set up Docker Compose for easy 3-node cluster management, and create a dedicated CLI client. We follow a **server-first** approach: get the containerized cluster running and verified before layering on the CLI.
+
+### Strategy
+Build infrastructure bottom-up, isolating variables at each step:
+1. Fix network binding so containers can accept external connections → **Step 1 (DONE ✅)**
+2. Package the server into a minimal container image → **Step 2**
+3. Orchestrate a 3-node cluster with Docker Compose → **Step 3**
+4. Verify the cluster using `curl` against the existing HTTP REST gateway → **Step 3 Verification**
+5. Build a dedicated CLI tool with auto-redirect → **Step 4**
+6. End-to-end cluster chaos testing with the CLI → **Step 5**
 
 ---
 
-#### 42. Dockerfile — [`deployments/Dockerfile`](file:///Users/shantanusingh/Desktop/raftra/deployments/Dockerfile)
+### Step 1 — Network & Listener Preparation ✅ (COMPLETED)
+
+**What:** Added a `-host` flag (default `0.0.0.0`) so gRPC and HTTP servers bind to all network interfaces instead of hardcoded `localhost`. Updated peer parsing to support Docker service DNS format (`node2:50051`) alongside explicit host format (`node2:localhost:50052`).
+
+**Files Modified:**
+- [`cmd/raftra-server/main.go`](file:///Users/shantanusingh/Desktop/raftra/cmd/raftra-server/main.go) — Added `-host` flag, updated `fmt.Sprintf` for `serverAddr` and `httpServerAddr`, enhanced peer parsing with `TrimSpace` and two-part/three-part format support.
+
+**Verification:** ✅ `make build` + `make test` + `--help` all pass.
+
+---
+
+### Step 2 — Multi-Stage Dockerfile [`deployments/Dockerfile`](file:///Users/shantanusingh/Desktop/raftra/deployments/Dockerfile)
+
+**What:** Create a multi-stage Dockerfile that compiles `raftra-server` as a statically-linked binary in a Go builder stage, then copies it into a minimal Alpine runtime image.
+
+**Why:**
+- Single-stage `golang:1.22` image = ~800MB+. Multi-stage with Alpine runtime = ~25MB.
+- `CGO_ENABLED=0` produces a fully static binary — no shared library dependencies.
+- Layer caching: `go.mod`/`go.sum` copied first so dependency downloads are cached across rebuilds.
+
+**Key Decisions:**
+- The CLI binary (`raftra-cli`) is NOT compiled in this step because `cmd/raftra-cli/` does not exist yet. It will be added to the Dockerfile in Step 4.
+- Ports exposed: `50051` (gRPC) and `8001` (HTTP REST gateway).
+- `-ldflags="-s -w"` strips debug symbols and DWARF tables to minimize binary size.
 
 ```dockerfile
-# Build stage
+# Stage 1: Build
 FROM golang:1.22-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /raftra-server ./cmd/raftra-server
-RUN CGO_ENABLED=0 go build -o /raftra-cli ./cmd/raftra-cli
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /raftra-server ./cmd/raftra-server
 
-# Runtime stage
+# Stage 2: Runtime
 FROM alpine:3.19
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /raftra-server /usr/local/bin/
-COPY --from=builder /raftra-cli /usr/local/bin/
-EXPOSE 50051 9090
+EXPOSE 50051 8001
 ENTRYPOINT ["raftra-server"]
 ```
 
-#### 43. Docker Compose — [`deployments/docker-compose.yml`](file:///Users/shantanusingh/Desktop/raftra/deployments/docker-compose.yml)
+**Verification:**
+- [ ] `docker build -f deployments/Dockerfile -t raftra:latest .` succeeds
+- [ ] `docker image ls raftra` shows image size < 30MB
+- [ ] `docker run --rm raftra:latest --help` shows the expected flag output
+
+---
+
+### Step 3 — Docker Compose Cluster [`deployments/docker-compose.yml`](file:///Users/shantanusingh/Desktop/raftra/deployments/docker-compose.yml)
+
+**What:** Define a 3-node Raft cluster where each node runs in its own container, connected via a Docker bridge network (`raftra-net`), with named volumes for persistent bbolt storage.
+
+**Why:**
+- Docker Compose DNS: each service name (`node1`, `node2`, `node3`) becomes a DNS hostname on the bridge network. Nodes can reach peers via `node2:50051`.
+- Named volumes: bbolt databases survive container restarts, enabling crash-recovery testing.
+- Port mapping: each container's internal ports are mapped to unique host ports so you can `curl` from your Mac.
+
+**Key Decisions:**
+- Each node uses the Step 1 peer format: `--peers=node2:50051,node3:50051` (Docker DNS resolution).
+- HTTP peer maps use container-internal addresses for redirect targets. From the host, redirects will point to internal Docker DNS names; for host-side `curl` testing we use `-L` (follow redirects) or contact the leader directly.
+- No `--metrics-port` flag (Prometheus is not implemented yet, per AGENTS.md).
+- `restart: unless-stopped` so nodes come back after a `docker compose stop/start` cycle.
 
 ```yaml
-version: '3.8'
 services:
   node1:
-    build: ..
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
     container_name: raftra-node1
     command: >
       --id=node1
+      --host=0.0.0.0
       --port=50051
-      --metrics-port=9090
+      --http-port=8001
       --peers=node2:50051,node3:50051
+      --http-peers=node1:http://node1:8001,node2:http://node2:8001,node3:http://node3:8001
       --data-dir=/data
     ports:
       - "50051:50051"
-      - "9091:9090"
+      - "8001:8001"
     volumes:
       - node1-data:/data
     networks:
       - raftra-net
+    restart: unless-stopped
 
   node2:
-    build: ..
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
     container_name: raftra-node2
     command: >
       --id=node2
+      --host=0.0.0.0
       --port=50051
-      --metrics-port=9090
+      --http-port=8001
       --peers=node1:50051,node3:50051
+      --http-peers=node1:http://node1:8001,node2:http://node2:8001,node3:http://node3:8001
       --data-dir=/data
     ports:
       - "50052:50051"
-      - "9092:9090"
+      - "8002:8001"
     volumes:
       - node2-data:/data
     networks:
       - raftra-net
+    restart: unless-stopped
 
   node3:
-    build: ..
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
     container_name: raftra-node3
     command: >
       --id=node3
+      --host=0.0.0.0
       --port=50051
-      --metrics-port=9090
+      --http-port=8001
       --peers=node1:50051,node2:50051
+      --http-peers=node1:http://node1:8001,node2:http://node2:8001,node3:http://node3:8001
       --data-dir=/data
     ports:
       - "50053:50051"
-      - "9093:9090"
+      - "8003:8001"
     volumes:
       - node3-data:/data
     networks:
       - raftra-net
+    restart: unless-stopped
 
 volumes:
   node1-data:
@@ -1146,27 +1210,115 @@ networks:
     driver: bridge
 ```
 
-#### 44. CLI Client — [`cmd/raftra-cli/main.go`](file:///Users/shantanusingh/Desktop/raftra/cmd/raftra-cli/main.go)
+**Step 3 Verification (curl-based, no CLI needed):**
 
+```bash
+# 1. Build and start the 3-node cluster
+docker compose -f deployments/docker-compose.yml up --build -d
+
+# 2. Check logs — one node should win election
+docker compose -f deployments/docker-compose.yml logs | grep "won election"
+
+# 3. Check status of each node (find who is leader)
+curl http://localhost:8001/status
+curl http://localhost:8002/status
+curl http://localhost:8003/status
+
+# 4. Write a key via the leader's HTTP port (e.g., if node1 is leader)
+curl -X PUT http://localhost:8001/api/v1/kv/name -d '{"value":"shantanu"}'
+
+# 5. Read the key back from a follower
+curl http://localhost:8002/api/v1/kv/name
+
+# 6. Kill the leader container — observe re-election
+docker compose -f deployments/docker-compose.yml stop node1
+
+# 7. Check who became the new leader
+curl http://localhost:8002/status
+curl http://localhost:8003/status
+
+# 8. Write to the new leader while old leader is down
+curl -X PUT http://localhost:8002/api/v1/kv/city -d '{"value":"mumbai"}'
+
+# 9. Restart the old leader — it should catch up
+docker compose -f deployments/docker-compose.yml start node1
+sleep 3
+curl http://localhost:8001/api/v1/kv/city  # should return "mumbai"
+
+# 10. Tear down
+docker compose -f deployments/docker-compose.yml down -v
 ```
-Usage:
-  raftra-cli --addr=localhost:50051 set <key> <value>
-  raftra-cli --addr=localhost:50051 get <key>
-  raftra-cli --addr=localhost:50051 delete <key>
 
-Features:
-  - Auto-follow leader redirects
-  - Pretty-printed output
-  - Error messages for partition/unavailable
+- [ ] `docker compose up --build -d` starts all 3 containers
+- [ ] Exactly one node shows `"is_leader": true` via `/status`
+- [ ] PUT on leader returns success; GET on follower returns the value
+- [ ] `docker compose stop node1` triggers re-election within seconds
+- [ ] Restarted node catches up on missed log entries
+
+---
+
+### Step 4 — CLI Client [`cmd/raftra-cli/main.go`](file:///Users/shantanusingh/Desktop/raftra/cmd/raftra-cli/main.go)
+
+**What:** Build a command-line tool that sends HTTP requests to any Raftra node and automatically follows HTTP 307 redirects to the leader.
+
+**Usage:**
+```
+raftra-cli --addr=http://localhost:8001 set <key> <value>
+raftra-cli --addr=http://localhost:8001 get <key>
+raftra-cli --addr=http://localhost:8001 delete <key>
+raftra-cli --addr=http://localhost:8001 status
 ```
 
-### Phase 6 Verification
+**Features:**
+- Auto-follow HTTP 307 leader redirects (via Go's `http.Client` with redirect policy)
+- Pretty-printed, color-coded terminal output
+- Clear error messages for cluster-unavailable / no-leader states
+- `status` subcommand to inspect any node's role, term, and commit index
 
-- [ ] `docker compose up` starts 3-node cluster
-- [ ] CLI can SET/GET/DELETE through any node
-- [ ] CLI follows leader redirects automatically
-- [ ] `docker compose stop node1` triggers re-election
-- [ ] `docker compose start node1` → node catches up
+**Key Decisions:**
+- Uses HTTP (not gRPC) so it works against the REST gateway without needing protobuf stubs on the client side.
+- Stateless: each command is a single HTTP request. No persistent connection.
+- After building, update the Dockerfile to also compile `raftra-cli` and copy it into the runtime image.
+
+**Verification:**
+- [ ] `go build -o bin/raftra-cli ./cmd/raftra-cli` compiles
+- [ ] `raftra-cli --addr=http://localhost:8001 set name shantanu` returns success
+- [ ] `raftra-cli --addr=http://localhost:8002 get name` follows redirect and returns `shantanu`
+- [ ] `raftra-cli --addr=http://localhost:8003 delete name` follows redirect and succeeds
+- [ ] `raftra-cli --addr=http://localhost:8001 status` prints role/term/leader info
+
+---
+
+### Step 5 — End-to-End Cluster Chaos Testing with CLI
+
+**What:** Run the full chaos scenario using the CLI against the Docker cluster to prove fault tolerance in a real multi-process environment.
+
+**Scenario:**
+1. Start 3-node cluster via `docker compose up`
+2. Write keys through any node using `raftra-cli`
+3. Kill the leader (`docker compose stop nodeX`)
+4. Verify the remaining 2 nodes elect a new leader
+5. Write new data through the new leader using `raftra-cli`
+6. Restart the stopped node (`docker compose start nodeX`)
+7. Verify the restarted node catches up on missed entries
+8. Read all keys from the restarted node to confirm full consistency
+
+**Verification:**
+- [ ] `raftra-cli set` works through any node (auto-redirects to leader)
+- [ ] After leader kill, cluster recovers and accepts writes within seconds
+- [ ] Restarted node serves all keys (including those written while it was down)
+- [ ] All 3 nodes converge to identical state
+
+---
+
+### Phase 6 Verification (Complete Checklist)
+
+- [x] **Step 1:** `-host` flag defaults to `0.0.0.0`, peer parsing handles Docker DNS format
+- [ ] **Step 2:** Docker image builds, < 30MB, `--help` works inside container
+- [ ] **Step 3:** `docker compose up` starts 3-node cluster, election succeeds, `curl` PUT/GET works, failover and recovery work
+- [ ] **Step 4:** CLI compiles, set/get/delete/status commands work, auto-redirect works
+- [ ] **Step 5:** Full end-to-end chaos scenario passes with CLI + Docker cluster
+
 
 ---
 
