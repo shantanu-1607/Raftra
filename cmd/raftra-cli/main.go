@@ -278,7 +278,7 @@ func runInteractiveMode(addr string, parsedBase *url.URL) {
 	fmt.Println()
 	fmt.Print(hideCursor)
 	tagline := "  Distributed consensus at your fingertips."
-	typeWriter(gradientText(tagline, 240), 12*time.Millisecond)
+	typeWriter(gradientText(tagline, 240), 3*time.Millisecond)
 	fmt.Print(showCursor)
 
 	// --- Info block ---
@@ -319,7 +319,7 @@ func runInteractiveMode(addr string, parsedBase *url.URL) {
 			printSeparator()
 			fmt.Println(gradientText("  Commands", 235))
 			printSeparator()
-			fmt.Printf("  %sstatus%s            Show cluster node status\n", colorBold, colorReset)
+			fmt.Printf("  %sstatus%s             Show cluster node status\n", colorBold, colorReset)
 			fmt.Printf("  %sset%s <key> <value>  Store a key-value pair\n", colorBold, colorReset)
 			fmt.Printf("  %sget%s <key>          Retrieve a value by key\n", colorBold, colorReset)
 			fmt.Printf("  %sdelete%s <key>       Remove a key from the store\n", colorBold, colorReset)
@@ -504,7 +504,7 @@ func executeRequest(method, targetURL string, body []byte, initialURL *url.URL) 
 			locURL = translateRedirectURL(locURL, initialURL)
 			currentURL = locURL.String()
 
-			r, g, b := hslToRGB(45, 0.8, 0.6) // Warm amber for redirect notices
+			r, g, b := hslToRGB(240, 0.7, 0.65) // Blue-purple for redirect notices
 			fmt.Printf("  %s↳%s Redirecting to leader → %s%s%s\n",
 				rgb(r, g, b), colorReset, colorBold, currentURL, colorReset)
 			continue
@@ -549,16 +549,16 @@ func handleStatus(baseURL string, parsedBase *url.URL) {
 	// Render a beautiful status card
 	fmt.Println()
 	printSeparator()
-	fmt.Println(gradientText("  Node Status", 260))
+	fmt.Println(gradientText("  Node Status", 235))
 	printSeparator()
 
 	// Role with contextual color
 	var roleDisplay string
 	if status.IsLeader {
-		r, g, b := hslToRGB(140, 0.8, 0.5)
+		r, g, b := hslToRGB(250, 0.8, 0.7)
 		roleDisplay = fmt.Sprintf("%s★ %s (Leader)%s", rgb(r, g, b), status.Role, colorReset)
 	} else {
-		r, g, b := hslToRGB(40, 0.7, 0.6)
+		r, g, b := hslToRGB(230, 0.5, 0.6)
 		roleDisplay = fmt.Sprintf("%s◦ %s%s", rgb(r, g, b), status.Role, colorReset)
 	}
 
@@ -583,7 +583,7 @@ func handleGet(baseURL string, parsedBase *url.URL, key string) {
 	}
 
 	if resp.StatusCode == http.StatusNotFound {
-		r, g, b := hslToRGB(40, 0.8, 0.6)
+		r, g, b := hslToRGB(245, 0.6, 0.65)
 		fmt.Printf("  %s⚠ Key not found:%s %s\n", rgb(r, g, b), colorReset, key)
 		return
 	}
@@ -600,7 +600,7 @@ func handleGet(baseURL string, parsedBase *url.URL, key string) {
 		return
 	}
 
-	r, g, b := hslToRGB(280, 0.6, 0.7)
+	r, g, b := hslToRGB(250, 0.6, 0.7)
 	fmt.Printf("  %s%s%s → %s%s%s\n", rgb(r, g, b), key, colorReset, colorBold, kv.Value, colorReset)
 }
 
@@ -616,7 +616,7 @@ func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable {
-		r, g, b := hslToRGB(40, 0.8, 0.6)
+		r, g, b := hslToRGB(245, 0.6, 0.65)
 		fmt.Fprintf(os.Stderr, "  %s⚠%s No elected leader. Try again in a moment.\n", rgb(r, g, b), colorReset)
 		return
 	}
@@ -626,7 +626,7 @@ func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
 		return
 	}
 
-	r, g, b := hslToRGB(140, 0.8, 0.5)
+	r, g, b := hslToRGB(235, 0.8, 0.7)
 	fmt.Printf("  %s✔%s %s%s%s = %s\n", rgb(r, g, b), colorReset, colorBold, key, colorReset, value)
 }
 
@@ -642,7 +642,7 @@ func handleDelete(baseURL string, parsedBase *url.URL, key string) {
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable {
-		r, g, b := hslToRGB(40, 0.8, 0.6)
+		r, g, b := hslToRGB(245, 0.6, 0.65)
 		fmt.Fprintf(os.Stderr, "  %s⚠%s No elected leader. Try again in a moment.\n", rgb(r, g, b), colorReset)
 		return
 	}
@@ -652,6 +652,6 @@ func handleDelete(baseURL string, parsedBase *url.URL, key string) {
 		return
 	}
 
-	r, g, b := hslToRGB(140, 0.8, 0.5)
+	r, g, b := hslToRGB(235, 0.8, 0.7)
 	fmt.Printf("  %s✔%s Deleted %s%s%s\n", rgb(r, g, b), colorReset, colorBold, key, colorReset)
 }
