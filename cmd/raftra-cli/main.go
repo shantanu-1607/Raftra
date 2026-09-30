@@ -127,7 +127,7 @@ func renderGradientLine(line string, hueStart, hueSpan, saturation, lightness fl
 
 // gradientText applies a gradient to an entire string (used for short labels).
 func gradientText(text string, hueStart float64) string {
-	return renderGradientLine(text, hueStart, 80.0, 0.8, 0.65)
+	return renderGradientLine(text, hueStart, 50.0, 0.75, 0.65)
 }
 
 // ============================================================
@@ -148,8 +148,8 @@ func renderBannerFrame(hueOffset float64) string {
 	var sb strings.Builder
 	for i, line := range banner {
 		// Each successive line starts slightly further along the hue wheel
-		lineHue := hueOffset + float64(i)*12.0
-		sb.WriteString(renderGradientLine(line, lineHue, 120.0, 0.85, 0.62))
+		lineHue := hueOffset + float64(i)*8.0
+		sb.WriteString(renderGradientLine(line, lineHue, 50.0, 0.75, 0.65))
 		if i < len(banner)-1 {
 			sb.WriteString("\n")
 		}
@@ -166,28 +166,28 @@ func animateBanner() {
 	fmt.Print(hideCursor)
 
 	bannerHeight := len(banner)
-	baseHue := 260.0 // Start from purple/violet
+	baseHue := 240.0 // Start from blue-purple
 
 	// --- Phase 1: Reveal lines one-by-one ---
 	for i := 0; i < bannerHeight; i++ {
-		lineHue := baseHue + float64(i)*12.0
-		fmt.Println(renderGradientLine(banner[i], lineHue, 120.0, 0.85, 0.62))
-		time.Sleep(55 * time.Millisecond)
+		lineHue := baseHue + float64(i)*8.0
+		fmt.Println(renderGradientLine(banner[i], lineHue, 50.0, 0.75, 0.65))
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	// --- Phase 2: Shimmer — slide the gradient hue across the banner ---
-	shimmerFrames := 35
+	shimmerFrames := 25
 	for frame := 0; frame < shimmerFrames; frame++ {
 		// Move cursor back up to the top of the banner
 		fmt.Printf("\033[%dA", bannerHeight)
 
-		hueOffset := baseHue + float64(frame)*6.0
+		hueOffset := baseHue + float64(frame)*4.0
 		for i, line := range banner {
-			lineHue := hueOffset + float64(i)*12.0
+			lineHue := hueOffset + float64(i)*8.0
 			fmt.Print(clearLine)
-			fmt.Println(renderGradientLine(line, lineHue, 120.0, 0.85, 0.62))
+			fmt.Println(renderGradientLine(line, lineHue, 50.0, 0.75, 0.65))
 		}
-		time.Sleep(45 * time.Millisecond)
+		time.Sleep(40 * time.Millisecond)
 	}
 
 	fmt.Print(showCursor)
@@ -222,7 +222,7 @@ func startSpinner(label string) *spinner {
 				fmt.Printf("\r%s\r", clearLine)
 				return
 			default:
-				hue := float64(260 + (i*10)%100)
+				hue := float64(235 + (i*5)%45)
 				r, g, b := hslToRGB(hue, 0.8, 0.65)
 				fmt.Printf("\r  %s%s%s %s%s%s",
 					rgb(r, g, b), spinnerFrames[i%len(spinnerFrames)], colorReset,
@@ -247,10 +247,10 @@ func (s *spinner) stop() {
 // prompt returns the colorful interactive prompt string.
 func prompt() string {
 	// Colored dot + gradient "raftra" + arrow
-	r, g, b := hslToRGB(280, 0.9, 0.7)
+	r, g, b := hslToRGB(250, 0.75, 0.7)
 	dot := fmt.Sprintf("%s●%s", rgb(r, g, b), colorReset)
-	name := gradientText("raftra", 260)
-	r2, g2, b2 := hslToRGB(320, 0.7, 0.65)
+	name := gradientText("raftra", 235)
+	r2, g2, b2 := hslToRGB(260, 0.7, 0.65)
 	arrow := fmt.Sprintf("%s❯%s", rgb(r2, g2, b2), colorReset)
 	return fmt.Sprintf("%s %s %s ", dot, name, arrow)
 }
@@ -261,7 +261,7 @@ func prompt() string {
 
 func printSeparator() {
 	line := strings.Repeat("─", 50)
-	fmt.Println(renderGradientLine(line, 260, 100, 0.5, 0.45))
+	fmt.Println(renderGradientLine(line, 235, 45, 0.5, 0.45))
 }
 
 // ============================================================
@@ -278,15 +278,15 @@ func runInteractiveMode(addr string, parsedBase *url.URL) {
 	fmt.Println()
 	fmt.Print(hideCursor)
 	tagline := "  Distributed consensus at your fingertips."
-	typeWriter(gradientText(tagline, 270), 25*time.Millisecond)
+	typeWriter(gradientText(tagline, 240), 3*time.Millisecond)
 	fmt.Print(showCursor)
 
 	// --- Info block ---
 	fmt.Println()
 	printSeparator()
-	r, g, b := hslToRGB(280, 0.7, 0.7)
+	r, g, b := hslToRGB(255, 0.7, 0.7)
 	fmt.Printf("  %sv%s%s  •  ", rgb(r, g, b), version, colorReset)
-	r2, g2, b2 := hslToRGB(200, 0.6, 0.65)
+	r2, g2, b2 := hslToRGB(240, 0.6, 0.65)
 	fmt.Printf("%s%s%s\n", rgb(r2, g2, b2), addr, colorReset)
 	printSeparator()
 	fmt.Printf("  Type %shelp%s for commands, %sexit%s to quit.\n\n",
@@ -317,9 +317,9 @@ func runInteractiveMode(addr string, parsedBase *url.URL) {
 		case "help":
 			fmt.Println()
 			printSeparator()
-			fmt.Println(gradientText("  Commands", 260))
+			fmt.Println(gradientText("  Commands", 235))
 			printSeparator()
-			fmt.Printf("  %sstatus%s            Show cluster node status\n", colorBold, colorReset)
+			fmt.Printf("  %sstatus%s             Show cluster node status\n", colorBold, colorReset)
 			fmt.Printf("  %sset%s <key> <value>  Store a key-value pair\n", colorBold, colorReset)
 			fmt.Printf("  %sget%s <key>          Retrieve a value by key\n", colorBold, colorReset)
 			fmt.Printf("  %sdelete%s <key>       Remove a key from the store\n", colorBold, colorReset)
@@ -504,7 +504,7 @@ func executeRequest(method, targetURL string, body []byte, initialURL *url.URL) 
 			locURL = translateRedirectURL(locURL, initialURL)
 			currentURL = locURL.String()
 
-			r, g, b := hslToRGB(45, 0.8, 0.6) // Warm amber for redirect notices
+			r, g, b := hslToRGB(240, 0.7, 0.65) // Blue-purple for redirect notices
 			fmt.Printf("  %s↳%s Redirecting to leader → %s%s%s\n",
 				rgb(r, g, b), colorReset, colorBold, currentURL, colorReset)
 			continue
@@ -549,16 +549,16 @@ func handleStatus(baseURL string, parsedBase *url.URL) {
 	// Render a beautiful status card
 	fmt.Println()
 	printSeparator()
-	fmt.Println(gradientText("  Node Status", 260))
+	fmt.Println(gradientText("  Node Status", 235))
 	printSeparator()
 
 	// Role with contextual color
 	var roleDisplay string
 	if status.IsLeader {
-		r, g, b := hslToRGB(140, 0.8, 0.5)
+		r, g, b := hslToRGB(250, 0.8, 0.7)
 		roleDisplay = fmt.Sprintf("%s★ %s (Leader)%s", rgb(r, g, b), status.Role, colorReset)
 	} else {
-		r, g, b := hslToRGB(40, 0.7, 0.6)
+		r, g, b := hslToRGB(230, 0.5, 0.6)
 		roleDisplay = fmt.Sprintf("%s◦ %s%s", rgb(r, g, b), status.Role, colorReset)
 	}
 
@@ -583,7 +583,7 @@ func handleGet(baseURL string, parsedBase *url.URL, key string) {
 	}
 
 	if resp.StatusCode == http.StatusNotFound {
-		r, g, b := hslToRGB(40, 0.8, 0.6)
+		r, g, b := hslToRGB(245, 0.6, 0.65)
 		fmt.Printf("  %s⚠ Key not found:%s %s\n", rgb(r, g, b), colorReset, key)
 		return
 	}
@@ -600,7 +600,7 @@ func handleGet(baseURL string, parsedBase *url.URL, key string) {
 		return
 	}
 
-	r, g, b := hslToRGB(280, 0.6, 0.7)
+	r, g, b := hslToRGB(250, 0.6, 0.7)
 	fmt.Printf("  %s%s%s → %s%s%s\n", rgb(r, g, b), key, colorReset, colorBold, kv.Value, colorReset)
 }
 
@@ -616,7 +616,7 @@ func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable {
-		r, g, b := hslToRGB(40, 0.8, 0.6)
+		r, g, b := hslToRGB(245, 0.6, 0.65)
 		fmt.Fprintf(os.Stderr, "  %s⚠%s No elected leader. Try again in a moment.\n", rgb(r, g, b), colorReset)
 		return
 	}
@@ -626,7 +626,7 @@ func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
 		return
 	}
 
-	r, g, b := hslToRGB(140, 0.8, 0.5)
+	r, g, b := hslToRGB(235, 0.8, 0.7)
 	fmt.Printf("  %s✔%s %s%s%s = %s\n", rgb(r, g, b), colorReset, colorBold, key, colorReset, value)
 }
 
@@ -642,7 +642,7 @@ func handleDelete(baseURL string, parsedBase *url.URL, key string) {
 	}
 
 	if resp.StatusCode == http.StatusServiceUnavailable {
-		r, g, b := hslToRGB(40, 0.8, 0.6)
+		r, g, b := hslToRGB(245, 0.6, 0.65)
 		fmt.Fprintf(os.Stderr, "  %s⚠%s No elected leader. Try again in a moment.\n", rgb(r, g, b), colorReset)
 		return
 	}
@@ -652,6 +652,6 @@ func handleDelete(baseURL string, parsedBase *url.URL, key string) {
 		return
 	}
 
-	r, g, b := hslToRGB(140, 0.8, 0.5)
+	r, g, b := hslToRGB(235, 0.8, 0.7)
 	fmt.Printf("  %s✔%s Deleted %s%s%s\n", rgb(r, g, b), colorReset, colorBold, key, colorReset)
 }
