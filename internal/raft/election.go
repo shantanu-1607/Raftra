@@ -20,6 +20,10 @@ func (rn *RaftNode) checkTerm(incomingTerm uint64) bool {
 		rn.role = Follower
 		rn.leader = nil
 
+		//adding the metrics
+		rn.metrics.SetNodeRole(0) //0 = follower
+		rn.metrics.SetCurrentTerm(incomingTerm)
+
 		// Abort any in-flight proposals on this node since leadership was lost (§5.1)
 		for idx, ch := range rn.pendingCommits {
 			ch <- ErrNotLeader
@@ -42,6 +46,11 @@ func (rn *RaftNode) startElection() {
 	rn.role = Candidate
 	rn.persistent.VotedFor = rn.config.NodeID
 	rn.leader = nil
+
+	//metrics
+	rn.metrics.SetNodeRole(1) // 1= candidate
+	rn.metrics.SetCurrentTerm(rn.persistent.CurrentTerm)
+	rn.metrics.IncLeaderElections()
 
 	currentTerm := rn.persistent.CurrentTerm
 	candidateID := rn.config.NodeID
