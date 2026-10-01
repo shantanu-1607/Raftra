@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/shantanu-1607/raftra/internal/kvstore"
 	"github.com/shantanu-1607/raftra/internal/metrics"
 	"github.com/shantanu-1607/raftra/internal/raft"
@@ -24,15 +25,17 @@ type HTTPServer struct {
 }
 
 // NewHTTPServer creates an HTTPServer instance
-func NewHTTPServer(node *raft.RaftNode, addr string, peerHTTPAddrs map[string]string, logger *slog.Logger) *HTTPServer {
+func NewHTTPServer(node *raft.RaftNode, addr string, peerHTTPAddrs map[string]string, logger *slog.Logger, m *metrics.Metrics) *HTTPServer {
 	hs := &HTTPServer{
 		node:          node,
 		logger:        logger,
 		peerHTTPAddrs: peerHTTPAddrs,
+		metrics:       m,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", hs.handleStatus)
 	mux.HandleFunc("/api/v1/kv/", hs.handleKV)
+	mux.Handle("/metrics", promhttp.Handler())
 	hs.server = &http.Server{
 		Addr:         addr,
 		Handler:      mux,
