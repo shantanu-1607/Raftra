@@ -1,4 +1,4 @@
-.PHONY: proto build test clean docker-build docker-up docker-down
+.PHONY: proto build test bench bench-failover clean docker-build docker-up docker-down
 
 # Generate Go code from .proto files
 proto:
@@ -10,10 +10,19 @@ proto:
 build:
 	go build -o bin/raftra-server ./cmd/raftra-server
 	go build -o bin/raftra-cli ./cmd/raftra-cli
+	go build -o bin/raftra-loadgen ./benchmark/loadgen
 
 # Run unit tests with Go's race detector enabled
 test:
 	go test -v -race ./...
+
+# Run Go microbenchmarks
+bench:
+	go test -v -bench=. -benchmem -run=^$$ ./benchmark/...
+
+# Run the 10-trial failover measurement benchmark
+bench-failover:
+	go test -v -run=TestFailoverTimeMeasurement ./benchmark/...
 
 clean:
 	rm -rf bin/

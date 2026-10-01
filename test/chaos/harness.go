@@ -173,7 +173,7 @@ func (tt *TestTransport) Close() error {
 // TestCluster manages a group of Raft nodes connected via a ChaosNetwork.
 // It provides programmatic cluster controls, fault injection, and state inspection.
 type TestCluster struct {
-	t       *testing.T
+	t       testing.TB
 	mu      sync.Mutex
 	network *ChaosNetwork
 	nodes   map[string]*raft.RaftNode
@@ -186,7 +186,7 @@ type TestCluster struct {
 
 // NewTestCluster creates a multi-node cluster (typically 3 or 5 nodes)
 // with real bbolt persistence and an in-memory chaos router.
-func NewTestCluster(t *testing.T, size int) *TestCluster {
+func NewTestCluster(t testing.TB, size int) *TestCluster {
 	t.Helper()
 
 	baseDir := t.TempDir()
