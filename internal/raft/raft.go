@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
+	"github.com/shantanu-1607/raftra/internal/metrics"
 	"github.com/shantanu-1607/raftra/internal/storage"
 	pb "github.com/shantanu-1607/raftra/proto"
 )
@@ -38,6 +39,9 @@ type RaftNode struct {
 	kvStore   *kvstore.KVStore
 	storage   storage.StorageBackend
 	transport Transport
+
+	// Metrics
+	metrics *metrics.Metrics //metrics lines
 
 	// Coordination Channels & Timers
 	stopCh         chan struct{}
