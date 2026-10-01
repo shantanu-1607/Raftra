@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
+	"github.com/shantanu-1607/raftra/internal/metrics"
 	"github.com/shantanu-1607/raftra/internal/raft"
 )
 
@@ -19,6 +20,7 @@ type HTTPServer struct {
 	server        *http.Server
 	logger        *slog.Logger
 	peerHTTPAddrs map[string]string // nodeID -> "http://localhost:8001"
+	metrics       *metrics.Metrics
 }
 
 // NewHTTPServer creates an HTTPServer instance
