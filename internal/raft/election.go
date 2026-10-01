@@ -91,6 +91,7 @@ func (rn *RaftNode) startElection() {
 
 	for peerID := range rn.peers {
 		go func(peer string) {
+			rn.metrics.IncRequestVoteTotal()
 			res, err := rn.transport.SendRequestVote(peer, req)
 			if err != nil {
 				rn.logger.Debug("failed to send RequestVote to peer", "peer", peer, "err", err)
@@ -134,6 +135,7 @@ func (rn *RaftNode) becomeLeader() {
 	}
 
 	rn.role = Leader
+	rn.metrics.SetNodeRole(2) //2 = leader
 	lastLogIndex, _ := rn.storage.LastIndex()
 
 	// Initialize volatile leader state (re-initialized after each election)
