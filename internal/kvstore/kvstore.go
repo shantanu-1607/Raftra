@@ -37,3 +37,11 @@ func (kv *KVStore) Get(key string) (string, bool) {
 	val, exists := kv.data[key]
 	return val, exists
 }
+
+// Size returns the total number of keys currently stored in the state machine (concurrent safe)
+func (kv *KVStore) Size() int {
+	kv.mu.RLock()
+	defer kv.mu.RUnlock()
+
+	return len(kv.data)
+}

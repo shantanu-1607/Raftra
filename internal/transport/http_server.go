@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/shantanu-1607/raftra/internal/kvstore"
+	"github.com/shantanu-1607/raftra/internal/metrics"
 	"github.com/shantanu-1607/raftra/internal/raft"
 )
 
@@ -19,18 +21,21 @@ type HTTPServer struct {
 	server        *http.Server
 	logger        *slog.Logger
 	peerHTTPAddrs map[string]string // nodeID -> "http://localhost:8001"
+	metrics       *metrics.Metrics
 }
 
 // NewHTTPServer creates an HTTPServer instance
-func NewHTTPServer(node *raft.RaftNode, addr string, peerHTTPAddrs map[string]string, logger *slog.Logger) *HTTPServer {
+func NewHTTPServer(node *raft.RaftNode, addr string, peerHTTPAddrs map[string]string, logger *slog.Logger, m *metrics.Metrics) *HTTPServer {
 	hs := &HTTPServer{
 		node:          node,
 		logger:        logger,
 		peerHTTPAddrs: peerHTTPAddrs,
+		metrics:       m,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", hs.handleStatus)
 	mux.HandleFunc("/api/v1/kv/", hs.handleKV)
+	mux.Handle("/metrics", promhttp.Handler())
 	hs.server = &http.Server{
 		Addr:         addr,
 		Handler:      mux,
@@ -77,6 +82,17 @@ func (s *HTTPServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleKV handles GET, PUT, POST, DELETE for /api/v1/kv/{key}
 func (s *HTTPServer) handleKV(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	opType := strings.ToLower(r.Method)
+
+	defer func() {
+		if s.metrics != nil {
+			s.metrics.IncKVRequests(opType)
+			s.metrics.ObserveKVRequestDuration(opType, time.Since(start))
+			s.metrics.SetKVStoreSize(s.node.KVStoreSize())
+		}
+	}()
+
 	key := strings.TrimPrefix(r.URL.Path, "/api/v1/kv/")
 	if key == "" {
 		http.Error(w, "missing key in path", http.StatusBadRequest)

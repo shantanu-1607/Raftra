@@ -1316,8 +1316,8 @@ raftra-cli --addr=http://localhost:8001 status
 - [x] **Step 1:** `-host` flag defaults to `0.0.0.0`, peer parsing handles Docker DNS format
 - [x] **Step 2:** Docker image builds, < 30MB, `--help` works inside container
 - [x] **Step 3:** `docker compose up` starts 3-node cluster, election succeeds, `curl` PUT/GET works, failover and recovery work
-- [ ] **Step 4:** CLI compiles, set/get/delete/status commands work, auto-redirect works
-- [ ] **Step 5:** Full end-to-end chaos scenario passes with CLI + Docker cluster
+- [x] **Step 4:** CLI compiles, set/get/delete/status commands work, auto-redirect works
+- [x] **Step 5:** Full end-to-end chaos scenario passes with CLI + Docker cluster
 
 
 ---

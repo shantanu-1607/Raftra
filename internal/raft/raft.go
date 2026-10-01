@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
+	"github.com/shantanu-1607/raftra/internal/metrics"
 	"github.com/shantanu-1607/raftra/internal/storage"
 	pb "github.com/shantanu-1607/raftra/proto"
 )
@@ -38,6 +39,9 @@ type RaftNode struct {
 	kvStore   *kvstore.KVStore
 	storage   storage.StorageBackend
 	transport Transport
+
+	// Metrics
+	metrics *metrics.Metrics //metrics lines
 
 	// Coordination Channels & Timers
 	stopCh         chan struct{}
@@ -233,4 +237,28 @@ func (rn *RaftNode) ID() string {
 // Get retrieves a value from the committed state machine (thread-safe fast read).
 func (rn *RaftNode) Get(key string) (string, bool) {
 	return rn.kvStore.Get(key)
+}
+
+// SetMetrics attaches the Prometheus metrics collector to the RaftNode
+func (rn *RaftNode) SetMetrics(m *metrics.Metrics) {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+	rn.metrics = m
+	if m != nil {
+		// Initialize the gauges with the current startup state
+		m.SetCurrentTerm(rn.persistent.CurrentTerm)
+		m.SetNodeRole(int(rn.role))
+		m.SetCommitIndex(rn.volatile.CommitIndex)
+		m.SetLastApplied(rn.volatile.LastApplied)
+		lastIdx, _ := rn.storage.LastIndex()
+		m.SetLogEntriesTotal(int(lastIdx))
+	}
+}
+
+// KVStoreSize returns the current number of keys in the state machine
+func (rn *RaftNode) KVStoreSize() int {
+	if rn.kvStore == nil {
+		return 0
+	}
+	return rn.kvStore.Size()
 }

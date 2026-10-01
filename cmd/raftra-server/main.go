@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shantanu-1607/raftra/internal/kvstore"
+	"github.com/shantanu-1607/raftra/internal/metrics"
 	"github.com/shantanu-1607/raftra/internal/raft"
 	"github.com/shantanu-1607/raftra/internal/storage"
 	"github.com/shantanu-1607/raftra/internal/transport"
@@ -110,6 +111,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 6.5 Initialize Metrics
+	m := metrics.Default()
+	raftNode.SetMetrics(m)
+
 	// 7. Initialize outbound gRPC transport to peers
 	trans, err := transport.NewGRPCTransport(peerAddressMap, 100*time.Millisecond)
 	if err != nil {
@@ -129,7 +134,7 @@ func main() {
 
 	// 9. Start the HTTP REST gateway
 	httpServerAddr := fmt.Sprintf("%s:%d", *host, *httpPort)
-	httpServer := transport.NewHTTPServer(raftNode, httpServerAddr, peerHTTPMap, logger)
+	httpServer := transport.NewHTTPServer(raftNode, httpServerAddr, peerHTTPMap, logger, m)
 	if err := httpServer.Start(); err != nil {
 		logger.Error("failed to start HTTP server", "error", err)
 		os.Exit(1)
