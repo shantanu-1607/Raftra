@@ -38,7 +38,7 @@ func BenchmarkGetOperation(b *testing.B) {
 	cluster.Start()
 	defer cluster.Stop()
 
-	leader := cluster.WaitForLeader(3 * time.Second)
+	cluster.WaitForLeader(3 * time.Second)
 
 	// Pre-populate key before timing
 	const targetKey = "bench-read-target"
@@ -47,11 +47,24 @@ func BenchmarkGetOperation(b *testing.B) {
 		b.Fatalf("failed to seed target key: %v", err)
 	}
 
+	// Wait until the current leader has applied the value to its state machine
+	var readNode string
+	for {
+		leaders := cluster.GetLeaders()
+		if len(leaders) > 0 {
+			readNode = leaders[0].ID()
+			if val, found := cluster.GetKV(readNode, targetKey); found && val == targetVal {
+				break
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		val, found := cluster.GetKV(leader.ID(), targetKey)
+		val, found := cluster.GetKV(readNode, targetKey)
 		if !found || val != targetVal {
 			b.Fatalf("GetKV failed: found=%v, val=%s", found, val)
 		}
@@ -65,12 +78,27 @@ func BenchmarkMixedWorkload(b *testing.B) {
 	cluster.Start()
 	defer cluster.Stop()
 
-	leader := cluster.WaitForLeader(3 * time.Second)
+	cluster.WaitForLeader(3 * time.Second)
 
 	// Pre-populate initial keys
 	const keyCount = 100
 	for i := 0; i < keyCount; i++ {
 		_, _ = cluster.Propose(fmt.Sprintf("seed-%d", i), fmt.Sprintf("val-%d", i))
+	}
+
+	// Wait until the current leader has applied the last seed key
+	var readNode string
+	for {
+		leaders := cluster.GetLeaders()
+		if len(leaders) > 0 {
+			readNode = leaders[0].ID()
+			lastSeedKey := fmt.Sprintf("seed-%d", keyCount-1)
+			lastSeedVal := fmt.Sprintf("val-%d", keyCount-1)
+			if val, found := cluster.GetKV(readNode, lastSeedKey); found && val == lastSeedVal {
+				break
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	var opCount int64
@@ -89,7 +117,7 @@ func BenchmarkMixedWorkload(b *testing.B) {
 			} else {
 				// 80% Reads: fast in-memory KV lookup
 				k := fmt.Sprintf("seed-%d", idx%keyCount)
-				_, _ = cluster.GetKV(leader.ID(), k)
+				_, _ = cluster.GetKV(readNode, k)
 			}
 		}
 	})
