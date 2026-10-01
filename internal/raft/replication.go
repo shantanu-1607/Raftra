@@ -20,6 +20,7 @@ var ErrCommitTimeout = errors.New("commit timeout: cluster failed to reach major
 // Returns the allocated log index, or ErrNotLeader if this node is not the leader.
 
 func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
+	start := time.Now()
 	rn.mu.Lock()
 
 	// Only the Leader can accept write proposals from clients
@@ -69,6 +70,11 @@ func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 	// 6. Block until majority confirms (or timeout)
 	select {
 	case err := <-commitCh:
+		if err == nil {
+			//record successful replication:
+			rn.metrics.SetLogEntriesTotal(int(newIndex))
+			rn.metrics.ObserveReplicationLatency(time.Since(start))
+		}
 		return newIndex, err
 	case <-time.After(5 * time.Second):
 		rn.mu.Lock()
@@ -125,6 +131,7 @@ func (rn *RaftNode) sendAppendEntriesToPeerLocked(peerID string) {
 		LeaderCommit: commitIndex,
 	}
 	go func(peer string, r *pb.AppendEntriesRequest, numEntries int) {
+		rn.metrics.IncAppendEntriesTotal()
 		resp, err := rn.transport.SendAppendEntries(peer, r)
 		if err != nil {
 			rn.logger.Debug("failed to send AppendEntries to peer", "peer", peer, "err", err)
@@ -208,6 +215,7 @@ func (rn *RaftNode) checkAndUpdateCommitIndexLocked() {
 		// If a majority of nodes have this entry, advance commitIndex!
 		if matchCount >= majority {
 			rn.volatile.CommitIndex = n
+			rn.metrics.SetCommitIndex(n) //metrics
 			rn.logger.Info("advanced commitIndex", "commitIndex", n, "term", rn.persistent.CurrentTerm)
 		}
 	}
@@ -235,6 +243,7 @@ func (rn *RaftNode) applyCommittedEntriesLocked() {
 		}
 
 		rn.kvStore.Apply(cmd)
+		rn.metrics.SetLastApplied(rn.volatile.LastApplied)
 
 		// Wake up any client waiting in the waiting room for this index!
 		if ch, exists := rn.pendingCommits[rn.volatile.LastApplied]; exists {
