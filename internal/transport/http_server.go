@@ -82,6 +82,17 @@ func (s *HTTPServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleKV handles GET, PUT, POST, DELETE for /api/v1/kv/{key}
 func (s *HTTPServer) handleKV(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	opType := strings.ToLower(r.Method)
+
+	defer func() {
+		if s.metrics != nil {
+			s.metrics.IncKVRequests(opType)
+			s.metrics.ObserveKVRequestDuration(opType, time.Since(start))
+			s.metrics.SetKVStoreSize(s.node.KVStoreSize())
+		}
+	}()
+
 	key := strings.TrimPrefix(r.URL.Path, "/api/v1/kv/")
 	if key == "" {
 		http.Error(w, "missing key in path", http.StatusBadRequest)
