@@ -114,14 +114,14 @@ Raftra enforces the five key Raft safety properties:
 
 | Phase | Day | Deliverable | Status |
 | :--- | :---: | :--- | :---: |
-| 1 | 1–2 | Project skeleton, gRPC/Protobuf definitions, node lifecycle | ⬜ |
-| 2 | 3–4 | Leader election, terms, voting, heartbeats | ⬜ |
-| 3 | 5–6 | Log replication, conflict resolution, majority commit, client API | ⬜ |
-| 4 | 7 | Bbolt persistence, crash recovery, state rebuild on restart | ⬜ |
-| 5 | 8 | Automated chaos testing (leader kill, partition, split-brain) | ⬜ |
-| 6 | 9 | Docker Compose cluster, CLI client with leader-redirect | ⬜ |
-| 7 | 9 | Prometheus metrics, structured logging, benchmarks | ⬜ |
-| 8 | 10 | Documentation, architecture diagrams, demo walkthrough, final test sweep | ⬜ |
+| 1 | 1–2 | Project skeleton, gRPC/Protobuf definitions, node lifecycle | ✅ |
+| 2 | 3–4 | Leader election, terms, voting, heartbeats | ✅ |
+| 3 | 5–6 | Log replication, conflict resolution, majority commit, client API | ✅ |
+| 4 | 7 | Bbolt persistence, crash recovery, state rebuild on restart | ✅ |
+| 5 | 8 | Automated chaos testing (leader kill, partition, split-brain) | ✅ |
+| 6 | 9 | Docker Compose cluster, CLI client with leader-redirect | ✅ |
+| 7 | 9 | Prometheus metrics, structured logging, benchmarks | ✅ |
+| 8 | 10 | Documentation, architecture diagrams, demo walkthrough, final test sweep | ✅ |
 
 ---
 
