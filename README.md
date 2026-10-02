@@ -462,7 +462,7 @@ Raftra puts correctness ahead of performance and extra features. These trade-off
 - **Reads are not linearizable.** HTTP `GET` is served from the local state machine of whichever node receives it, so a follower can return slightly stale data. gRPC `Get` requires the leader role but has no ReadIndex or lease check. Writes are fully replicated and safe.
 - **`POST` create-if-absent is best-effort.** The leader checks whether the key exists before it proposes, so two concurrent creates of the same key can both succeed.
 - **No write batching.** Each proposal is its own fsynced bbolt transaction (see [Benchmarks](#what-the-numbers-mean)).
-- **AppendEntries sends everything from `nextIndex`.** There is no maximum batch size, and conflicts back off one index at a time.
+- **AppendEntries carries at most 256 entries per RPC.** A far-behind follower catches up over several RPCs, and conflicts still back off one index at a time.
 - **No snapshots or log compaction.** The log grows without bound.
 - **Static membership.** The cluster is fixed at startup.
 - **Command encoding** uses `encoding/gob` inside the protobuf `LogEntry.command` bytes.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,9 @@ type clusterNetwork struct {
 	mu           sync.RWMutex
 	nodes        map[string]*RaftNode // nodeID -> *RaftNode
 	disconnected map[string]bool      // nodeID -> true (simulates disconnected cable)
+
+	// maxEntriesSeen is the largest AppendEntries entry count that crossed the wire.
+	maxEntriesSeen atomic.Int64
 }
 
 func newClusterNetwork() *clusterNetwork {
@@ -88,6 +92,9 @@ func (nt *networkTransport) SendAppendEntries(peerID string, req *pb.AppendEntri
 	target, exists := nt.network.nodes[peerID]
 	if !exists {
 		return nil, fmt.Errorf("peer %s not found in network", peerID)
+	}
+	if n := int64(len(req.Entries)); n > nt.network.maxEntriesSeen.Load() {
+		nt.network.maxEntriesSeen.Store(n)
 	}
 	clonedReq := proto.Clone(req).(*pb.AppendEntriesRequest)
 	resp := target.HandleAppendEntries(clonedReq)
@@ -630,5 +637,67 @@ func TestConcurrentWrites(t *testing.T) {
 		if v, ok := n3.Get(k); !ok || v != expected {
 			t.Fatalf("follower 3 missing %s=%s, got %s", k, expected, v)
 		}
+	}
+}
+
+// Catch-up after a long outage must be split into batches of at most
+// maxEntriesPerAppend entries so a single RPC never outgrows its timeout/size limit.
+func TestAppendEntriesBatchIsCapped(t *testing.T) {
+	net, n1, _, n3 := createThreeNodeCluster()
+	forceLeader(n1, 1)
+	n1.Start()
+	defer n1.Stop()
+	n3.Start()
+	defer n3.Stop()
+
+	net.isolate("node3")
+	const total = 600 // more than 2 * maxEntriesPerAppend
+	for i := 1; i <= total; i++ {
+		if _, err := n1.ProposeCommand(encodeSet(fmt.Sprintf("k%d", i), "v")); err != nil {
+			t.Fatalf("propose %d failed: %v", i, err)
+		}
+	}
+	if n1.CommitIndex() != total {
+		t.Fatalf("leader commitIndex = %d, want %d", n1.CommitIndex(), total)
+	}
+
+	net.reconnect("node3")
+	waitFor(t, 10*time.Second, func() bool {
+		_, ok := n3.Get(fmt.Sprintf("k%d", total))
+		return ok && n3.CommitIndex() == total
+	}, "reconnected follower to catch up to all entries")
+
+	if got := net.maxEntriesSeen.Load(); got > maxEntriesPerAppend {
+		t.Fatalf("an AppendEntries carried %d entries, cap is %d", got, maxEntriesPerAppend)
+	}
+	if got := net.maxEntriesSeen.Load(); got == 0 {
+		t.Fatal("no entries observed on the wire")
+	}
+}
+
+// With capped batches, a batch can end before the follower's (possibly divergent) log tail.
+// The follower must not advance commitIndex past the last entry the leader actually verified
+// in this RPC (§5.3: min(leaderCommit, index of last new entry)).
+func TestFollowerCommitCappedAtLastNewEntry(t *testing.T) {
+	node, _ := createTestNode("node2", []PeerConfig{{ID: "node1"}})
+
+	old := make([]*pb.LogEntry, 10)
+	for i := range old {
+		old[i] = &pb.LogEntry{Index: uint64(i + 1), Term: 1, Command: encodeSet(fmt.Sprintf("k%d", i+1), "old")}
+	}
+	if resp := node.HandleAppendEntries(&pb.AppendEntriesRequest{Term: 1, LeaderId: "node1", Entries: old}); !resp.Success {
+		t.Fatal("setup append failed")
+	}
+
+	// New leader (term 2) only re-sends indexes 4-5 (matching), but has committed up to 10.
+	resp := node.HandleAppendEntries(&pb.AppendEntriesRequest{
+		Term: 2, LeaderId: "node1", PrevLogIndex: 3, PrevLogTerm: 1,
+		Entries: old[3:5], LeaderCommit: 10,
+	})
+	if !resp.Success {
+		t.Fatal("expected success")
+	}
+	if got := node.CommitIndex(); got != 5 {
+		t.Fatalf("commitIndex = %d, want 5 (last entry verified by this RPC)", got)
 	}
 }

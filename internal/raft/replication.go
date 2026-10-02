@@ -88,6 +88,12 @@ func (rn *RaftNode) ProposeCommand(cmd []byte) (uint64, error) {
 
 }
 
+// maxEntriesPerAppend caps how many log entries one AppendEntries RPC carries.
+// RPCs time out after 100 ms and gRPC limits messages to 4 MB, so an unbounded
+// catch-up batch for a long-absent follower could never succeed and would be
+// retried forever with the same nextIndex.
+const maxEntriesPerAppend = 256
+
 // broadcastAppendEntriesLocked replicates pending log entries to all peers.
 func (rn *RaftNode) broadcastAppendEntriesLocked() {
 	if rn.role != Leader {
@@ -120,8 +126,13 @@ func (rn *RaftNode) sendAppendEntriesToPeerLocked(peerID string) {
 	if prevEntry, err := rn.storage.GetEntry(prevLogIndex); err == nil && prevEntry != nil {
 		prevLogTerm = prevEntry.Term
 	}
-	// Fetch all log entries from nextIndex to the end of the log
+	// Fetch log entries from nextIndex, at most maxEntriesPerAppend per RPC.
+	// The response handler derives newNext from len(entries), so the next
+	// heartbeat/broadcast continues where this batch ended.
 	entries, _ := rn.storage.GetEntriesFrom(nextIdx)
+	if len(entries) > maxEntriesPerAppend {
+		entries = entries[:maxEntriesPerAppend]
+	}
 	req := &pb.AppendEntriesRequest{
 		Term:         currentTerm,
 		LeaderId:     leaderID,

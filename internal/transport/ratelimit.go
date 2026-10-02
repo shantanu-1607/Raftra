@@ -83,21 +83,35 @@ func (rl *rateLimiter) sweepLocked(now time.Time) {
 	}
 }
 
-// clientIP returns the address used to identify a client for rate limiting.
+// clientIP returns the key used to identify a client for rate limiting.
 // Behind a trusted reverse proxy (Caddy), the TCP peer is always the proxy, so the
-// real client is the last X-Forwarded-For hop, which the proxy appends itself.
+// real client is the last hop of the last X-Forwarded-For header line, which the proxy
+// appends itself; it is used only if it parses as an IP, otherwise RemoteAddr is used.
+// IPv4 addresses are returned as-is. IPv6 addresses collapse to their /64 network,
+// so a client cannot get fresh buckets by rotating addresses inside its prefix.
 func clientIP(r *http.Request, trustProxy bool) string {
+	addr := ""
 	if trustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			hops := strings.Split(xff, ",")
-			if ip := strings.TrimSpace(hops[len(hops)-1]); ip != "" {
-				return ip
+		if lines := r.Header.Values("X-Forwarded-For"); len(lines) > 0 {
+			hops := strings.Split(lines[len(lines)-1], ",")
+			if hop := strings.TrimSpace(hops[len(hops)-1]); net.ParseIP(hop) != nil {
+				addr = hop
 			}
 		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
+	if addr == "" {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		addr = host
 	}
-	return host
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return addr
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		return ip4.String()
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String()
 }

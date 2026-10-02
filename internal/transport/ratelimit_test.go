@@ -106,6 +106,11 @@ func TestClientIP(t *testing.T) {
 		{"xff used when proxy trusted", "127.0.0.1:5555", "198.51.100.9", true, "198.51.100.9"},
 		{"last xff hop wins", "127.0.0.1:5555", "10.9.9.9, 198.51.100.9", true, "198.51.100.9"},
 		{"trusted proxy but no xff", "127.0.0.1:5555", "", true, "127.0.0.1"},
+		{"garbage xff falls back to remote addr", "127.0.0.1:5555", "not-an-ip", true, "127.0.0.1"},
+		{"ipv4 remote unchanged", "192.0.2.1:443", "", false, "192.0.2.1"},
+		{"ipv4-mapped ipv6 remote is plain ipv4", "[::ffff:192.0.2.1]:443", "", false, "192.0.2.1"},
+		{"ipv6 remote keyed by /64", "[2001:db8:1:2::5]:443", "", false, "2001:db8:1:2::"},
+		{"ipv6 xff keyed by /64", "127.0.0.1:5555", "2001:db8:1:2:aaaa::1", true, "2001:db8:1:2::"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,5 +123,29 @@ func TestClientIP(t *testing.T) {
 				t.Fatalf("clientIP() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestClientIPIPv6SamePrefixSharesKey(t *testing.T) {
+	key := func(remote string) string {
+		req := httptest.NewRequest("PUT", "/api/v1/kv/k", nil)
+		req.RemoteAddr = remote
+		return clientIP(req, false)
+	}
+	if key("[2001:db8:1:2::5]:443") != key("[2001:db8:1:2::9]:443") {
+		t.Fatal("addresses in the same /64 must share a key")
+	}
+	if key("[2001:db8:1:2::5]:443") == key("[2001:db8:1:3::5]:443") {
+		t.Fatal("addresses in different /64s must not share a key")
+	}
+}
+
+func TestClientIPMultipleXFFLines(t *testing.T) {
+	req := httptest.NewRequest("PUT", "/api/v1/kv/k", nil)
+	req.RemoteAddr = "127.0.0.1:5555"
+	req.Header.Add("X-Forwarded-For", "10.1.1.1, 10.2.2.2")
+	req.Header.Add("X-Forwarded-For", "10.3.3.3, 198.51.100.9")
+	if got := clientIP(req, true); got != "198.51.100.9" {
+		t.Fatalf("clientIP() = %q, want last hop of last line", got)
 	}
 }

@@ -153,6 +153,10 @@ func main() {
 		TrustProxy:    *trustProxy,
 		CORSOrigin:    *corsOrigin,
 	}
+	if err := limits.Validate(); err != nil {
+		logger.Error("invalid playground limits", "error", err)
+		os.Exit(1)
+	}
 	if limits != (transport.Limits{}) {
 		logger.Info("playground limits enabled",
 			"max_key_bytes", limits.MaxKeyBytes,

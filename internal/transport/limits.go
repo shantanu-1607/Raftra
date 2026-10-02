@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 )
 
@@ -18,6 +19,36 @@ type Limits struct {
 	WriteBurst    int     // token bucket size for WriteRate; 0 = ceil(WriteRate)
 	TrustProxy    bool    // identify clients by X-Forwarded-For (only behind a trusted proxy)
 	CORSOrigin    string  // Access-Control-Allow-Origin value for GET /status; "" = no header
+}
+
+// Validate rejects flag values that would misbehave at runtime.
+func (l Limits) Validate() error {
+	if l.MaxKeyBytes < 0 {
+		return errors.New("-max-key-bytes must be >= 0")
+	}
+	if l.MaxValueBytes < 0 {
+		return errors.New("-max-value-bytes must be >= 0")
+	}
+	if l.MaxKeys < 0 {
+		return errors.New("-max-keys must be >= 0")
+	}
+	if l.WriteBurst < 0 {
+		return errors.New("-write-burst must be >= 0")
+	}
+	if math.IsNaN(l.WriteRate) || math.IsInf(l.WriteRate, 0) || l.WriteRate < 0 {
+		return errors.New("-write-rate must be a finite number >= 0")
+	}
+	if l.WriteRate > 0 {
+		burst := float64(l.WriteBurst)
+		if l.WriteBurst == 0 {
+			burst = math.Ceil(l.WriteRate)
+		}
+		// Keeps the limiter sweep's refill-time Duration conversion from overflowing.
+		if burst/l.WriteRate > 86400 {
+			return errors.New("-write-burst / -write-rate must refill within 24h (raise -write-rate or lower -write-burst)")
+		}
+	}
+	return nil
 }
 
 // writeJSONError sends an error response using the gateway's {"error": "..."} shape.
@@ -66,7 +97,7 @@ func (s *HTTPServer) readValue(w http.ResponseWriter, r *http.Request) (string, 
 				fmt.Sprintf("value too large (max %d bytes)", s.limits.MaxValueBytes))
 			return "", false
 		}
-		http.Error(w, "failed to read body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "failed to read body")
 		return "", false
 	}
 	return string(data), true

@@ -121,6 +121,8 @@ func TestStoreFullRejectsOnlyNewKeys(t *testing.T) {
 
 func TestWriteRateLimitPerClient(t *testing.T) {
 	s := newTestServer(t, Limits{WriteRate: 1, WriteBurst: 2})
+	clock := newFakeClock()
+	s.limiter = newRateLimiter(1, 2, clock.now)
 
 	put := func(remoteAddr string) *httptest.ResponseRecorder {
 		req := newReq("PUT", "/api/v1/kv/k", "v")
@@ -153,11 +155,13 @@ func TestRateLimitUsesForwardedForOnlyWhenTrusted(t *testing.T) {
 	}
 
 	trusted := newTestServer(t, Limits{WriteRate: 1, WriteBurst: 1, TrustProxy: true})
+	trusted.limiter = newRateLimiter(1, 1, newFakeClock().now)
 	expectStatus(t, put(trusted, "198.51.100.1"), http.StatusOK)
 	expectStatus(t, put(trusted, "198.51.100.2"), http.StatusOK) // different real client
 	expectStatus(t, put(trusted, "198.51.100.1"), http.StatusTooManyRequests)
 
 	untrusted := newTestServer(t, Limits{WriteRate: 1, WriteBurst: 1})
+	untrusted.limiter = newRateLimiter(1, 1, newFakeClock().now)
 	expectStatus(t, put(untrusted, "198.51.100.1"), http.StatusOK)
 	expectStatus(t, put(untrusted, "198.51.100.2"), http.StatusTooManyRequests) // same TCP peer
 }

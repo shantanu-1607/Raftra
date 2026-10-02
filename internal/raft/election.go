@@ -333,10 +333,12 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 	// 5. Update follower's commitIndex (§5.3):
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	if req.LeaderCommit > rn.volatile.CommitIndex {
-		lastLogIndex, _ := rn.storage.LastIndex()
+		// Only entries up to PrevLogIndex+len(Entries) are known to match the leader's log;
+		// the local tail beyond that may be divergent (AppendEntries batches are capped).
+		lastNewIndex := req.PrevLogIndex + uint64(len(req.Entries))
 		newCommitIndex := req.LeaderCommit
-		if lastLogIndex < newCommitIndex {
-			newCommitIndex = lastLogIndex
+		if lastNewIndex < newCommitIndex {
+			newCommitIndex = lastNewIndex
 		}
 
 		if newCommitIndex > rn.volatile.CommitIndex {
