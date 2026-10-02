@@ -565,12 +565,12 @@ func (rn *RaftNode) checkTerm(incomingTerm uint64) {
 
 ### Phase 2 Verification
 
-- [ ] 3 nodes start → exactly 1 leader elected within 2 seconds
-- [ ] Leader sends heartbeats; followers don't start elections
-- [ ] Kill leader → new leader elected within 1 second
-- [ ] Restart killed node → joins as follower
-- [ ] All unit tests pass with `-race` flag
-- [ ] Terms strictly increase across elections
+- [x] 3 nodes start → exactly 1 leader elected within 2 seconds
+- [x] Leader sends heartbeats; followers don't start elections
+- [x] Kill leader → new leader elected within 1 second _(failover max 611 ms over 20 trials)_
+- [x] Restart killed node → joins as follower
+- [x] All unit tests pass with `-race` flag
+- [x] Terms strictly increase across elections
 
 ---
 
@@ -769,12 +769,12 @@ Exposes an HTTP/JSON REST API on each node alongside gRPC for easy `curl` and br
 
 ### Phase 3 Verification
 
-- [ ] Client can SET/GET/DELETE through leader
-- [ ] Writes replicated to all followers
-- [ ] Follower state machine matches leader's
-- [ ] Non-leader returns redirect with leader hint
-- [ ] Concurrent writes are serialized through Raft log
-- [ ] All tests pass with `-race` flag
+- [x] Client can SET/GET/DELETE through leader
+- [x] Writes replicated to all followers
+- [x] Follower state machine matches leader's
+- [x] Non-leader returns redirect with leader hint
+- [x] Concurrent writes are serialized through Raft log
+- [x] All tests pass with `-race` flag
 
 ---
 
@@ -878,12 +878,12 @@ Every place in the Raft code that modifies persistent state must go through the 
 
 ### Phase 4 Verification
 
-- [ ] Kill node → restart → node recovers term, vote, and log
-- [ ] Restarted node correctly rebuilds KV state
-- [ ] Restarted node catches up with cluster
-- [ ] No data loss for committed entries
-- [ ] Persistence operations don't significantly impact latency (< 10ms overhead)
-- [ ] All tests pass with `-race` flag
+- [x] Kill node → restart → node recovers term, vote, and log
+- [x] Restarted node correctly rebuilds KV state
+- [x] Restarted node catches up with cluster
+- [x] No data loss for committed entries
+- [ ] Persistence operations don't significantly impact latency (< 10ms overhead) _(not met on macOS: ~15 ms per quorum commit with fsync vs. sub-ms GETs; needs group commit — see benchmark_results.md)_
+- [x] All tests pass with `-race` flag
 
 ---
 
@@ -1044,11 +1044,11 @@ func (t *TestTransport) SendAppendEntries(peer string, req *AppendEntriesRequest
 
 ### Phase 5 Verification
 
-- [ ] All 6 failure scenarios pass reliably (run 10 times each)
-- [ ] No test is flaky (timing-dependent)
-- [ ] Tests run in < 60 seconds total
-- [ ] Tests pass with `-race` flag
-- [ ] Isolated minority cannot commit writes
+- [x] All 6 failure scenarios pass reliably (run 10 times each) _(60/60 with `-race`, 2026-10-03)_
+- [x] No test is flaky (timing-dependent)
+- [x] Tests run in < 60 seconds total _(chaos suite ~15 s, full `make test` ~16 s wall)_
+- [x] Tests pass with `-race` flag
+- [x] Isolated minority cannot commit writes
 
 ---
 
@@ -1418,9 +1418,9 @@ Test:
 ### Phase 7 Verification
 
 - [ ] Prometheus metrics endpoint returns valid metrics
-- [ ] Load generator runs without errors at 100+ ops/sec
-- [ ] Benchmark results are reproducible (< 10% variance)
-- [ ] Failover time < 2 seconds consistently
+- [x] Load generator runs without errors at 100+ ops/sec _(5,842 ops/s with `-nosync`; durable mode on macOS: 93.7 ops/s, 0 errors)_
+- [ ] Benchmark results are reproducible (< 10% variance) _(partial: Set 7.5%, Get 0.8%, ReplicationLatency 9.5% max/min spread; MixedWorkload 19.7% and failover avg 13.6% exceed it)_
+- [x] Failover time < 2 seconds consistently _(avg 322 ms, max 611 ms over 20 trials)_
 
 ---
 
@@ -1511,13 +1511,13 @@ docker compose down
 
 ### Phase 8 Verification
 
-- [ ] All tests pass (unit + integration + chaos)
+- [x] All tests pass (unit + integration + chaos) _(39/39 with `-race`, 2026-10-03)_
 - [ ] Docker Compose cluster works end-to-end
 - [ ] Demo walkthrough runs without issues
-- [ ] README is complete
+- [x] README is complete
 - [ ] Architecture docs include diagrams
-- [ ] No TODO/FIXME/HACK comments in code
-- [ ] Code is `go vet` and `golangci-lint` clean
+- [x] No TODO/FIXME/HACK comments in code
+- [ ] Code is `go vet` and `golangci-lint` clean _(`go vet` + `gofmt` clean; golangci-lint not set up)_
 
 ---
 

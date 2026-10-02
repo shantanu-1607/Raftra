@@ -106,8 +106,6 @@ func (b *BboltStore) Close() error {
 	return b.db.Close()
 }
 
-
-
 // SaveTerm atomically persists the current term to disk.
 func (b *BboltStore) SaveTerm(term uint64) error {
 	return b.db.Update(func(tx *bbolt.Tx) error {
@@ -127,8 +125,8 @@ func (b *BboltStore) LoadTerm() (uint64, error) {
 		}
 		return nil
 	})
-	return term, err}
-
+	return term, err
+}
 
 // SaveVotedFor atomically persists the candidate ID we voted for in this term.
 func (b *BboltStore) SaveVotedFor(candidateID string) error {
@@ -152,7 +150,6 @@ func (b *BboltStore) LoadVotedFor() (string, error) {
 	return votedFor, err
 }
 
-
 // AppendEntries atomically saves one or more log entries to disk.
 func (b *BboltStore) AppendEntries(entries []*pb.LogEntry) error {
 	if len(entries) == 0 {
@@ -174,7 +171,6 @@ func (b *BboltStore) AppendEntries(entries []*pb.LogEntry) error {
 	})
 }
 
-
 // GetEntry retrieves a single log entry by its index.
 func (b *BboltStore) GetEntry(index uint64) (*pb.LogEntry, error) {
 	var entry *pb.LogEntry
@@ -192,9 +188,8 @@ func (b *BboltStore) GetEntry(index uint64) (*pb.LogEntry, error) {
 	})
 
 	return entry, err
-	
-}
 
+}
 
 // GetEntriesFrom returns all log entries from startIndex onwards (inclusive).
 func (b *BboltStore) GetEntriesFrom(startIndex uint64) ([]*pb.LogEntry, error) {
@@ -215,7 +210,6 @@ func (b *BboltStore) GetEntriesFrom(startIndex uint64) ([]*pb.LogEntry, error) {
 	})
 	return entries, err
 }
-
 
 // TruncateFrom deletes all log entries from index to the end of the log.
 // This is used during log conflict resolution when a follower's log diverges from the leader's.

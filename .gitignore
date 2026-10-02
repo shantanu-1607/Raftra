@@ -1,6 +1,9 @@
 
 # Binaries
 bin/
+/raftra-server
+/raftra-cli
+/raftra-loadgen
 *.exe
 *.exe~
 *.dll
@@ -9,10 +12,11 @@ bin/
 # Test artifacts & data
 *.test
 *.out
+*.log
 /data/
+/data[0-9]*/
 *.db
 # OS / IDE files
 .DS_Store
 .vscode/
 .idea/
-EOFplan.md

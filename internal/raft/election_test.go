@@ -277,4 +277,3 @@ func TestTermIncrementsAcrossElections(t *testing.T) {
 		t.Fatalf("expected node to remain Candidate, got %v", node.Role())
 	}
 }
-

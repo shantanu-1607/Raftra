@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shantanu-1607/raftra/internal/raft"
 	"github.com/shantanu-1607/raftra/test/chaos"
 )
 
@@ -36,6 +37,16 @@ func TestFailoverTimeMeasurement(t *testing.T) {
 		if _, err := cluster.Propose("init-key", "init-val"); err != nil {
 			cluster.Stop()
 			t.Fatalf("Run %d: Initial write failed: %v", run, err)
+		}
+
+		// Startup elections can still be settling, so the leader seen in step 1 may
+		// already be deposed. Wait until every node applied the warm-up write, then
+		// target the highest-term leader so we crash the node that is actually leading.
+		cluster.AssertAllKVConsistent("init-key", "init-val", 2*time.Second)
+		oldLeader = currentLeader(cluster)
+		if oldLeader == nil {
+			cluster.Stop()
+			t.Fatalf("Run %d: No leader after warm-up write", run)
 		}
 
 		// 3. Record crash time T1 and immediately kill leader
@@ -90,4 +101,16 @@ func TestFailoverTimeMeasurement(t *testing.T) {
 	if avgDuration > 2*time.Second {
 		t.Fatalf("Average failover time %v exceeded 2.0s requirement", avgDuration)
 	}
+}
+
+// currentLeader returns the leader with the highest term, ignoring stale leaders
+// from older terms that have not yet stepped down.
+func currentLeader(cluster *chaos.TestCluster) *raft.RaftNode {
+	var best *raft.RaftNode
+	for _, l := range cluster.GetLeaders() {
+		if best == nil || l.Term() > best.Term() {
+			best = l
+		}
+	}
+	return best
 }
