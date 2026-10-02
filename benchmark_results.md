@@ -88,18 +88,18 @@ GET Latency (In-Memory Read):
 *Command: `go test -bench=. -benchmem -count=3 -run='^$' ./benchmark/`*
 
 ```
-BenchmarkSetOperation-8              81    14515229 ns/op                         161481 B/op   881 allocs/op
-BenchmarkSetOperation-8              92    14450537 ns/op                         161538 B/op   881 allocs/op
-BenchmarkSetOperation-8              79    15537212 ns/op                         167454 B/op   889 allocs/op
-BenchmarkGetOperation-8        40469042          29.21 ns/op                           0 B/op     0 allocs/op
-BenchmarkGetOperation-8        39991681          29.43 ns/op                           0 B/op     0 allocs/op
-BenchmarkGetOperation-8        40177046          29.45 ns/op                           0 B/op     0 allocs/op
-BenchmarkMixedWorkload-8            469     2562557 ns/op                          36529 B/op   190 allocs/op
-BenchmarkMixedWorkload-8            482     2508305 ns/op                          36801 B/op   190 allocs/op
-BenchmarkMixedWorkload-8            423     3003328 ns/op                          37632 B/op   193 allocs/op
-BenchmarkReplicationLatency-8        76    16538412 ns/op   16460 us/quorum-commit 160894 B/op   888 allocs/op
-BenchmarkReplicationLatency-8        76    15240765 ns/op   15236 us/quorum-commit 160840 B/op   882 allocs/op
-BenchmarkReplicationLatency-8        91    15033553 ns/op   15028 us/quorum-commit 163408 B/op   883 allocs/op
+BenchmarkSetOperation-8              81    14515229 ns/op                          161481 B/op    881 allocs/op
+BenchmarkSetOperation-8              92    14450537 ns/op                          161538 B/op    881 allocs/op
+BenchmarkSetOperation-8              79    15537212 ns/op                          167454 B/op    889 allocs/op
+BenchmarkGetOperation-8        40469042       29.21 ns/op                               0 B/op      0 allocs/op
+BenchmarkGetOperation-8        39991681       29.43 ns/op                               0 B/op      0 allocs/op
+BenchmarkGetOperation-8        40177046       29.45 ns/op                               0 B/op      0 allocs/op
+BenchmarkMixedWorkload-8            469     2562557 ns/op                           36529 B/op    190 allocs/op
+BenchmarkMixedWorkload-8            482     2508305 ns/op                           36801 B/op    190 allocs/op
+BenchmarkMixedWorkload-8            423     3003328 ns/op                           37632 B/op    193 allocs/op
+BenchmarkReplicationLatency-8        76    16538412 ns/op   16460 us/quorum-commit 160894 B/op    888 allocs/op
+BenchmarkReplicationLatency-8        76    15240765 ns/op   15236 us/quorum-commit 160840 B/op    882 allocs/op
+BenchmarkReplicationLatency-8        91    15033553 ns/op   15028 us/quorum-commit 163408 B/op    883 allocs/op
 ```
 
 | Benchmark | Mean | Derived rate | Spread (max/min) |
