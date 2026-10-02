@@ -29,6 +29,15 @@ func main() {
 	httpPeersFlag := flag.String("http-peers", "", "comma-separated list of peer ID:http-address (e.g. node1:http://localhost:8001,node2:http://localhost:8002)")
 	dataDir := flag.String("data-dir", "data", "Directory to store Raft persistent state and logs")
 	noSync := flag.Bool("nosync", false, "Disable bbolt fsync for benchmark mode (faster but less durable)")
+
+	// Playground protections for the HTTP gateway (all off by default)
+	maxKeyBytes := flag.Int("max-key-bytes", 0, "Reject writes whose key is longer than this many bytes (0 = unlimited)")
+	maxValueBytes := flag.Int64("max-value-bytes", 0, "Reject PUT/POST bodies larger than this many bytes (0 = unlimited)")
+	maxKeys := flag.Int("max-keys", 0, "Reject writes that would add a new key once the store holds this many keys (0 = unlimited)")
+	writeRate := flag.Float64("write-rate", 0, "Writes per second allowed per client IP (0 = unlimited)")
+	writeBurst := flag.Int("write-burst", 0, "Burst size for -write-rate (0 = ceil of -write-rate)")
+	trustProxy := flag.Bool("trust-proxy", false, "Identify clients by X-Forwarded-For (only behind a trusted reverse proxy)")
+	corsOrigin := flag.String("cors-origin", "", "Access-Control-Allow-Origin value for GET /status (empty = no header)")
 	flag.Parse()
 
 	// 2. Setup structured logging
@@ -135,7 +144,27 @@ func main() {
 
 	// 9. Start the HTTP REST gateway
 	httpServerAddr := fmt.Sprintf("%s:%d", *host, *httpPort)
-	httpServer := transport.NewHTTPServer(raftNode, httpServerAddr, peerHTTPMap, logger, m)
+	limits := transport.Limits{
+		MaxKeyBytes:   *maxKeyBytes,
+		MaxValueBytes: *maxValueBytes,
+		MaxKeys:       *maxKeys,
+		WriteRate:     *writeRate,
+		WriteBurst:    *writeBurst,
+		TrustProxy:    *trustProxy,
+		CORSOrigin:    *corsOrigin,
+	}
+	if limits != (transport.Limits{}) {
+		logger.Info("playground limits enabled",
+			"max_key_bytes", limits.MaxKeyBytes,
+			"max_value_bytes", limits.MaxValueBytes,
+			"max_keys", limits.MaxKeys,
+			"write_rate", limits.WriteRate,
+			"write_burst", limits.WriteBurst,
+			"trust_proxy", limits.TrustProxy,
+			"cors_origin", limits.CORSOrigin,
+		)
+	}
+	httpServer := transport.NewHTTPServer(raftNode, httpServerAddr, peerHTTPMap, logger, m, limits)
 	if err := httpServer.Start(); err != nil {
 		logger.Error("failed to start HTTP server", "error", err)
 		os.Exit(1)

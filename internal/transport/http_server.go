@@ -3,7 +3,6 @@ package transport
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -22,15 +21,21 @@ type HTTPServer struct {
 	logger        *slog.Logger
 	peerHTTPAddrs map[string]string // nodeID -> "http://localhost:8001"
 	metrics       *metrics.Metrics
+	limits        Limits
+	limiter       *rateLimiter // nil when write rate limiting is disabled
 }
 
 // NewHTTPServer creates an HTTPServer instance
-func NewHTTPServer(node *raft.RaftNode, addr string, peerHTTPAddrs map[string]string, logger *slog.Logger, m *metrics.Metrics) *HTTPServer {
+func NewHTTPServer(node *raft.RaftNode, addr string, peerHTTPAddrs map[string]string, logger *slog.Logger, m *metrics.Metrics, limits Limits) *HTTPServer {
 	hs := &HTTPServer{
 		node:          node,
 		logger:        logger,
 		peerHTTPAddrs: peerHTTPAddrs,
 		metrics:       m,
+		limits:        limits,
+	}
+	if limits.WriteRate > 0 {
+		hs.limiter = newRateLimiter(limits.WriteRate, limits.WriteBurst, time.Now)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", hs.handleStatus)
@@ -77,6 +82,9 @@ func (s *HTTPServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"last_applied": s.node.LastApplied(),
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if s.limits.CORSOrigin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", s.limits.CORSOrigin)
+	}
 	_ = json.NewEncoder(w).Encode(status)
 }
 
@@ -155,12 +163,13 @@ func (s *HTTPServer) handlePut(w http.ResponseWriter, r *http.Request, key strin
 	if s.redirectIfFollower(w, r) {
 		return
 	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "failed to read body", http.StatusBadRequest)
+	if !s.enforceWriteLimits(w, r, key, true) {
 		return
 	}
-	value := string(body)
+	value, ok := s.readValue(w, r)
+	if !ok {
+		return
+	}
 	cmd := kvstore.Command{
 		Type:  kvstore.CmdSet,
 		Key:   key,
@@ -192,6 +201,9 @@ func (s *HTTPServer) handlePost(w http.ResponseWriter, r *http.Request, key stri
 	if s.redirectIfFollower(w, r) {
 		return
 	}
+	if !s.enforceWriteLimits(w, r, key, true) {
+		return
+	}
 	// 1. Check if key already exists (Distributed Lock semantics)
 	if _, exists := s.node.Get(key); exists {
 		w.Header().Set("Content-Type", "application/json")
@@ -202,19 +214,17 @@ func (s *HTTPServer) handlePost(w http.ResponseWriter, r *http.Request, key stri
 		})
 		return
 	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "failed to read body", http.StatusBadRequest)
+	value, ok := s.readValue(w, r)
+	if !ok {
 		return
 	}
-	value := string(body)
 	cmd := kvstore.Command{
 		Type:  kvstore.CmdSet,
 		Key:   key,
 		Value: value,
 	}
 	encoded, _ := cmd.Encode()
-	_, err = s.node.ProposeCommand(encoded)
+	_, err := s.node.ProposeCommand(encoded)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -233,6 +243,9 @@ func (s *HTTPServer) handlePost(w http.ResponseWriter, r *http.Request, key stri
 // handleDelete removes a key through Raft consensus
 func (s *HTTPServer) handleDelete(w http.ResponseWriter, r *http.Request, key string) {
 	if s.redirectIfFollower(w, r) {
+		return
+	}
+	if !s.enforceWriteLimits(w, r, key, false) {
 		return
 	}
 	cmd := kvstore.Command{

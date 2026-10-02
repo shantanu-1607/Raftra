@@ -46,7 +46,7 @@ Use the `Makefile` for standard workflows:
 - **Load generator:** `./bin/raftra-loadgen -ops=10000 -concurrency=100 -ratio=80:20 -addr=http://localhost:8001`. The ratio is **SET:GET**.
 - **Generate Protobufs:** `make proto` (requires `protoc`, `protoc-gen-go` and `protoc-gen-go-grpc`).
 - **Docker cluster:** `make docker-build`, `make docker-up` and `make docker-down` (`docker-down` also deletes volumes).
-- **Run a node locally:** `./bin/raftra-server -id node1 -port 50051 -http-port 8001 -data-dir data1 -peers node2:localhost:50052,node3:localhost:50053 -http-peers node2:http://localhost:8002,node3:http://localhost:8003`. The full 3-node commands are in `DEMO_WALKTHROUGH.md`. Server flags are `-id`, `-host`, `-port`, `-http-port`, `-peers`, `-http-peers`, `-data-dir` and `-nosync`.
+- **Run a node locally:** `./bin/raftra-server -id node1 -port 50051 -http-port 8001 -data-dir data1 -peers node2:localhost:50052,node3:localhost:50053 -http-peers node2:http://localhost:8002,node3:http://localhost:8003`. The full 3-node commands are in `DEMO_WALKTHROUGH.md`. Server flags are `-id`, `-host`, `-port`, `-http-port`, `-peers`, `-http-peers`, `-data-dir`, `-nosync`, plus the playground limits `-max-key-bytes`, `-max-value-bytes`, `-max-keys`, `-write-rate`, `-write-burst`, `-trust-proxy` and `-cors-origin` (all off by default; implemented in `internal/transport/limits.go` and `ratelimit.go`).
 - **Race Detection:** Automatically included in `make test`.
 - *Note: There is no lint target and no golangci-lint config. `go vet ./...` and `gofmt -l .` work but are not wired into the Makefile.*
 

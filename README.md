@@ -222,6 +222,8 @@ For a guided tour that includes killing the leader live, see **[DEMO_WALKTHROUGH
 | `GET` | `/status` | Role, term, leader, commit and apply indices | `200` | — |
 | `GET` | `/metrics` | Prometheus exposition format | `200` | — |
 
+When playground limits are enabled (see [Configuration](#%EF%B8%8F-configuration)), writes can also return `413` (key or value too large), `429` (rate limited) or `507` (store full). Limits are enforced by the node that proposes the write, i.e. the leader.
+
 ### gRPC (every node, `-port`), defined in [`proto/raft.proto`](proto/raft.proto)
 
 | Service | RPCs | Notes |
@@ -245,6 +247,13 @@ For a guided tour that includes killing the leader live, see **[DEMO_WALKTHROUGH
 | `-http-peers` | — | Comma-separated `id:http://host:port`, used to build 307 redirect targets |
 | `-data-dir` | `data` | Directory for `<id>.db` (bbolt) |
 | `-nosync` | `false` | Disable bbolt fsync (benchmark mode, not crash-safe) |
+| `-max-key-bytes` | `0` (off) | Reject writes whose key is longer than this (→ `413`) |
+| `-max-value-bytes` | `0` (off) | Reject `PUT`/`POST` bodies larger than this (→ `413`) |
+| `-max-keys` | `0` (off) | Reject writes that would add a new key once the store is full (→ `507`). Overwrites and deletes still work. |
+| `-write-rate` | `0` (off) | Writes per second allowed per client IP (→ `429` with `Retry-After: 1`) |
+| `-write-burst` | `0` | Burst size for `-write-rate` (`0` = `ceil(write-rate)`) |
+| `-trust-proxy` | `false` | Identify clients by `X-Forwarded-For`. Only enable this behind a trusted reverse proxy such as Caddy. |
+| `-cors-origin` | — | `Access-Control-Allow-Origin` value for `GET /status`, so a web page can read cluster status |
 
 ### Raft timing (`raft.DefaultConfig`)
 
