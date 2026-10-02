@@ -28,6 +28,7 @@ func main() {
 	peerFlag := flag.String("peers", "", "comma-separated list of peer ID:address or ID:port (e.g. node2:50051 or node2:localhost:50052)")
 	httpPeersFlag := flag.String("http-peers", "", "comma-separated list of peer ID:http-address (e.g. node1:http://localhost:8001,node2:http://localhost:8002)")
 	dataDir := flag.String("data-dir", "data", "Directory to store Raft persistent state and logs")
+	noSync := flag.Bool("nosync", false, "Disable bbolt fsync for benchmark mode (faster but less durable)")
 	flag.Parse()
 
 	// 2. Setup structured logging
@@ -96,7 +97,7 @@ func main() {
 	}
 
 	dbPath := filepath.Join(*dataDir, fmt.Sprintf("%s.db", *nodeID))
-	store, err := storage.NewBboltStore(dbPath)
+	store, err := storage.NewBboltStoreWithOptions(dbPath, storage.StoreOptions{NoSync: *noSync})
 	if err != nil {
 		logger.Error("failed to create bbolt store", "error", err, "path", dbPath)
 		os.Exit(1)

@@ -222,8 +222,8 @@ func main() {
 			client := &http.Client{
 				Timeout: 10 * time.Second,
 				Transport: &http.Transport{
-					MaxIdleConns:        100,
-					MaxIdleConnsPerHost: 20,
+					MaxIdleConns:        2000,
+					MaxIdleConnsPerHost: 2000,
 					IdleConnTimeout:     30 * time.Second,
 				},
 				CheckRedirect: func(req *http.Request, via []*http.Request) error {

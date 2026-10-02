@@ -41,10 +41,22 @@ type BboltStore struct {
 
 var _ StorageBackend = (*BboltStore)(nil)
 
+// StoreOptions configures optional behavior for the bbolt storage backend.
+type StoreOptions struct {
+	// NoSync disables fsync after each write transaction for dramatically faster writes.
+	// WARNING: This sacrifices crash-recovery durability. Use only for benchmarks.
+	NoSync bool
+}
+
 // NewBboltStore opens (or creates) a bbolt database file and initializes the buckets.
 func NewBboltStore(dbPath string) (*BboltStore, error) {
+	return NewBboltStoreWithOptions(dbPath, StoreOptions{})
+}
+
+// NewBboltStoreWithOptions opens a bbolt database with the given options.
+func NewBboltStoreWithOptions(dbPath string, opts StoreOptions) (*BboltStore, error) {
 	// Open the database file with 1-second lock timeout
-	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{Timeout: 1 * time.Second})
+	db, err := bbolt.Open(dbPath, 0600, &bbolt.Options{Timeout: 1 * time.Second, NoSync: opts.NoSync})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open bbolt db at %s: %w", dbPath, err)
 	}
