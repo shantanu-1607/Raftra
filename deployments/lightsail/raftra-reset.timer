@@ -1,0 +1,10 @@
+[Unit]
+Description=Raftra hourly reset at :00:00
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+# Required: the default 1-minute accuracy could reset nodes up to a minute apart.
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

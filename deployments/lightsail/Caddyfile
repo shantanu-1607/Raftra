@@ -1,0 +1,13 @@
+# PUBLIC_HOSTNAME comes from /etc/raftra/raftra.env (see caddy-raftra.conf).
+# Caddy gets and renews the Let's Encrypt certificate automatically.
+{$PUBLIC_HOSTNAME} {
+	# Second line of defense behind raftra-server's own -max-value-bytes.
+	request_body {
+		max_size 2KB
+	}
+
+	# Prometheus metrics stay private.
+	respond /metrics 404
+
+	reverse_proxy 127.0.0.1:8001
+}

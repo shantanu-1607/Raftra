@@ -1,0 +1,9 @@
+[Unit]
+Description=Raftra chaos every 10 minutes (:05, :15, ... :55)
+
+[Timer]
+OnCalendar=*-*-* *:05,15,25,35,45,55:00
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

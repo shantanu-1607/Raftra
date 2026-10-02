@@ -1,0 +1,19 @@
+[Unit]
+Description=Raftra node (public playground)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=raftra
+Group=raftra
+EnvironmentFile=/etc/raftra/raftra.env
+# ${VAR} is passed as one argument; $LIMIT_FLAGS is split on spaces into several.
+ExecStart=/usr/local/bin/raftra-server -id ${NODE_ID} -host 0.0.0.0 -port 50051 -http-port 8001 -data-dir /var/lib/raftra -peers ${PEERS} -http-peers ${HTTP_PEERS} $LIMIT_FLAGS
+# Chaos SIGKILLs the leader; systemd brings it back 45 s later so the
+# landing page can show the dead node, the new election and the rejoin.
+Restart=on-failure
+RestartSec=45
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

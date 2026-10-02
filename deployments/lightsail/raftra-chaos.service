@@ -1,0 +1,6 @@
+[Unit]
+Description=Raftra chaos: kill this node if it is the leader
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/raftra/chaos.sh

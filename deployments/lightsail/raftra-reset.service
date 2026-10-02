@@ -1,0 +1,6 @@
+[Unit]
+Description=Raftra hourly reset: wipe playground data
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/raftra/reset.sh
