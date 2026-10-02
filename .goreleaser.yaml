@@ -1,0 +1,51 @@
+# GoReleaser v2 config. Push a tag like v0.2.0 and .github/workflows/release.yml
+# publishes these archives to GitHub Releases.
+# Local dry run: go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean
+version: 2
+
+project_name: raftra
+
+builds:
+  - id: raftra-cli
+    main: ./cmd/raftra-cli
+    binary: raftra-cli
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.defaultAddr=https://raftra-n1.duckdns.org,https://raftra-n2.duckdns.org,https://raftra-n3.duckdns.org
+
+  - id: raftra-server
+    main: ./cmd/raftra-server
+    binary: raftra-server
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - id: raftra-cli
+    ids: [raftra-cli]
+    name_template: "raftra-cli_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+  - id: raftra-server
+    ids: [raftra-server]
+    name_template: "raftra-server_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc

@@ -15,7 +15,13 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+// Build-time settings. Release builds override them with
+// -ldflags "-X main.version=... -X main.defaultAddr=..." (see .goreleaser.yaml);
+// a local `make build` keeps these defaults.
+var (
+	version     = "0.1.0"
+	defaultAddr = "http://localhost:8001"
+)
 
 // ============================================================
 // ANSI Escape Codes
@@ -268,7 +274,7 @@ func printSeparator() {
 // Interactive Mode
 // ============================================================
 
-func runInteractiveMode(addr string, parsedBase *url.URL) {
+func runInteractiveMode(c *cluster) {
 	fmt.Println() // Breathing room
 
 	// --- Animated banner ---
@@ -287,7 +293,7 @@ func runInteractiveMode(addr string, parsedBase *url.URL) {
 	r, g, b := hslToRGB(255, 0.7, 0.7)
 	fmt.Printf("  %sv%s%s  •  ", rgb(r, g, b), version, colorReset)
 	r2, g2, b2 := hslToRGB(240, 0.6, 0.65)
-	fmt.Printf("%s%s%s\n", rgb(r2, g2, b2), addr, colorReset)
+	fmt.Printf("%s%s%s\n", rgb(r2, g2, b2), c, colorReset)
 	printSeparator()
 	fmt.Printf("  Type %shelp%s for commands, %sexit%s to quit.\n\n",
 		colorBold, colorReset, colorBold, colorReset)
@@ -328,7 +334,7 @@ func runInteractiveMode(addr string, parsedBase *url.URL) {
 			fmt.Println()
 
 		default:
-			runCommand(args, addr, parsedBase)
+			runCommand(args, c)
 		}
 	}
 }
@@ -352,7 +358,7 @@ func printUsage() {
 	fmt.Printf("    %sget%s    <key>                     Retrieve a value\n", colorCyan, colorReset)
 	fmt.Printf("    %sdelete%s <key>                     Remove a key\n\n", colorCyan, colorReset)
 	fmt.Printf("  %sFLAGS%s\n", colorBold, colorReset)
-	fmt.Printf("    --addr string    Node address (default: http://localhost:8001)\n")
+	fmt.Printf("    --addr string    Comma-separated node addresses (default: %s)\n", defaultAddr)
 	fmt.Printf("    --help           Show this help message\n\n")
 }
 
@@ -362,19 +368,13 @@ func printUsage() {
 
 func main() {
 	var addr string
-	flag.StringVar(&addr, "addr", "http://localhost:8001", "HTTP address of the Raftra node")
+	flag.StringVar(&addr, "addr", defaultAddr, "Comma-separated HTTP addresses of Raftra nodes")
 	flag.Usage = printUsage
 	flag.Parse()
 
-	// Normalize base URL
-	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
-		addr = "http://" + addr
-	}
-	addr = strings.TrimRight(addr, "/")
-
-	parsedBase, err := url.Parse(addr)
+	c, err := newCluster(addr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "  %s✗ Error:%s Invalid node address %q: %v\n", colorRed, colorReset, addr, err)
+		fmt.Fprintf(os.Stderr, "  %s✗ Error:%s %v\n", colorRed, colorReset, err)
 		os.Exit(1)
 	}
 
@@ -382,31 +382,31 @@ func main() {
 
 	// No arguments → launch interactive REPL
 	if len(args) == 0 {
-		runInteractiveMode(addr, parsedBase)
+		runInteractiveMode(c)
 		return
 	}
 
 	// Otherwise → one-off command execution
-	runCommand(args, addr, parsedBase)
+	runCommand(args, c)
 }
 
 // ============================================================
 // Command Router
 // ============================================================
 
-func runCommand(args []string, addr string, parsedBase *url.URL) {
+func runCommand(args []string, c *cluster) {
 	command := strings.ToLower(args[0])
 
 	switch command {
 	case "status":
-		handleStatus(addr, parsedBase)
+		handleStatus(c)
 
 	case "get":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "  %s✗%s 'get' requires a key. Usage: %sget <key>%s\n", colorRed, colorReset, colorBold, colorReset)
 			return
 		}
-		handleGet(addr, parsedBase, args[1])
+		handleGet(c, args[1])
 
 	case "set":
 		if len(args) < 3 {
@@ -414,14 +414,14 @@ func runCommand(args []string, addr string, parsedBase *url.URL) {
 			return
 		}
 		val := strings.Join(args[2:], " ")
-		handleSet(addr, parsedBase, args[1], val)
+		handleSet(c, args[1], val)
 
 	case "delete", "del":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "  %s✗%s 'delete' requires a key. Usage: %sdelete <key>%s\n", colorRed, colorReset, colorBold, colorReset)
 			return
 		}
-		handleDelete(addr, parsedBase, args[1])
+		handleDelete(c, args[1])
 
 	default:
 		fmt.Fprintf(os.Stderr, "  %s✗%s Unknown command %q. Type %shelp%s for usage.\n", colorRed, colorReset, command, colorBold, colorReset)
@@ -524,10 +524,9 @@ func executeRequest(method, targetURL string, body []byte, initialURL *url.URL) 
 // Command Handlers
 // ============================================================
 
-func handleStatus(baseURL string, parsedBase *url.URL) {
+func handleStatus(c *cluster) {
 	sp := startSpinner("Fetching node status...")
-	targetURL := baseURL + "/status"
-	resp, body, err := executeRequest("GET", targetURL, nil, parsedBase)
+	resp, body, err := c.do("GET", "/status", nil)
 	sp.stop()
 
 	if err != nil {
@@ -536,7 +535,7 @@ func handleStatus(baseURL string, parsedBase *url.URL) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "  %s✗%s Node returned HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
+		fmt.Fprintf(os.Stderr, "  %s✗%s %s\n", colorRed, colorReset, describeError(resp.StatusCode, body))
 		return
 	}
 
@@ -571,10 +570,9 @@ func handleStatus(baseURL string, parsedBase *url.URL) {
 	fmt.Println()
 }
 
-func handleGet(baseURL string, parsedBase *url.URL, key string) {
+func handleGet(c *cluster, key string) {
 	sp := startSpinner("Reading key...")
-	targetURL := fmt.Sprintf("%s/api/v1/kv/%s", baseURL, url.PathEscape(key))
-	resp, body, err := executeRequest("GET", targetURL, nil, parsedBase)
+	resp, body, err := c.do("GET", "/api/v1/kv/"+url.PathEscape(key), nil)
 	sp.stop()
 
 	if err != nil {
@@ -589,7 +587,7 @@ func handleGet(baseURL string, parsedBase *url.URL, key string) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "  %s✗%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
+		fmt.Fprintf(os.Stderr, "  %s✗%s %s\n", colorRed, colorReset, describeError(resp.StatusCode, body))
 		return
 	}
 
@@ -604,10 +602,9 @@ func handleGet(baseURL string, parsedBase *url.URL, key string) {
 	fmt.Printf("  %s%s%s → %s%s%s\n", rgb(r, g, b), key, colorReset, colorBold, kv.Value, colorReset)
 }
 
-func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
+func handleSet(c *cluster, key, value string) {
 	sp := startSpinner("Writing to cluster...")
-	targetURL := fmt.Sprintf("%s/api/v1/kv/%s", baseURL, url.PathEscape(key))
-	resp, body, err := executeRequest("PUT", targetURL, []byte(value), parsedBase)
+	resp, body, err := c.do("PUT", "/api/v1/kv/"+url.PathEscape(key), []byte(value))
 	sp.stop()
 
 	if err != nil {
@@ -615,14 +612,8 @@ func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
 		return
 	}
 
-	if resp.StatusCode == http.StatusServiceUnavailable {
-		r, g, b := hslToRGB(245, 0.6, 0.65)
-		fmt.Fprintf(os.Stderr, "  %s⚠%s No elected leader. Try again in a moment.\n", rgb(r, g, b), colorReset)
-		return
-	}
-
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		fmt.Fprintf(os.Stderr, "  %s✗%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
+		fmt.Fprintf(os.Stderr, "  %s✗%s %s\n", colorRed, colorReset, describeError(resp.StatusCode, body))
 		return
 	}
 
@@ -630,10 +621,9 @@ func handleSet(baseURL string, parsedBase *url.URL, key, value string) {
 	fmt.Printf("  %s✔%s %s%s%s = %s\n", rgb(r, g, b), colorReset, colorBold, key, colorReset, value)
 }
 
-func handleDelete(baseURL string, parsedBase *url.URL, key string) {
+func handleDelete(c *cluster, key string) {
 	sp := startSpinner("Deleting from cluster...")
-	targetURL := fmt.Sprintf("%s/api/v1/kv/%s", baseURL, url.PathEscape(key))
-	resp, body, err := executeRequest("DELETE", targetURL, nil, parsedBase)
+	resp, body, err := c.do("DELETE", "/api/v1/kv/"+url.PathEscape(key), nil)
 	sp.stop()
 
 	if err != nil {
@@ -641,14 +631,8 @@ func handleDelete(baseURL string, parsedBase *url.URL, key string) {
 		return
 	}
 
-	if resp.StatusCode == http.StatusServiceUnavailable {
-		r, g, b := hslToRGB(245, 0.6, 0.65)
-		fmt.Fprintf(os.Stderr, "  %s⚠%s No elected leader. Try again in a moment.\n", rgb(r, g, b), colorReset)
-		return
-	}
-
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintf(os.Stderr, "  %s✗%s HTTP %d: %s\n", colorRed, colorReset, resp.StatusCode, string(body))
+		fmt.Fprintf(os.Stderr, "  %s✗%s %s\n", colorRed, colorReset, describeError(resp.StatusCode, body))
 		return
 	}
 

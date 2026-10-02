@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -120,6 +121,16 @@ func (s *HTTPServer) handleKV(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// leaderRedirectURL builds the redirect target for a request URL. It uses the
+// escaped path so keys containing ?, # or % survive the redirect.
+func leaderRedirectURL(leaderAddr string, u *url.URL) string {
+	target := leaderAddr + u.EscapedPath()
+	if u.RawQuery != "" {
+		target += "?" + u.RawQuery
+	}
+	return target
+}
+
 // redirectIfFollower checks if node is leader; if not, sends HTTP 307 Temporary Redirect
 func (s *HTTPServer) redirectIfFollower(w http.ResponseWriter, r *http.Request) bool {
 	if s.node.IsLeader() {
@@ -127,7 +138,7 @@ func (s *HTTPServer) redirectIfFollower(w http.ResponseWriter, r *http.Request) 
 	}
 	leaderID := s.node.LeaderID()
 	if leaderAddr, ok := s.peerHTTPAddrs[leaderID]; ok && leaderAddr != "" {
-		redirectURL := leaderAddr + r.URL.Path
+		redirectURL := leaderRedirectURL(leaderAddr, r.URL)
 		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 		return true
 	}

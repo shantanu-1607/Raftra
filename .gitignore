@@ -1,6 +1,7 @@
 
 # Binaries
 bin/
+dist/
 /raftra-server
 /raftra-cli
 /raftra-loadgen

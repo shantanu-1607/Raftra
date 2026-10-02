@@ -130,8 +130,8 @@ The developer runs the AWS console steps. The repository provides scripts and a 
 |---|---|
 | `.goreleaser.yaml` | Builds `raftra-cli` for darwin/linux/windows × amd64/arm64 and `raftra-server` for linux amd64/arm64. `CGO_ENABLED=0`, `-s -w`, version and default address via ldflags. Archive names `raftra-cli_<os>_<arch>.tar.gz` (`.zip` on Windows), plus `checksums.txt`. |
 | `.github/workflows/release.yml` | On a `v*` tag push, runs GoReleaser, which publishes a GitHub Release. |
-| `.github/workflows/ci.yml` | On every push and PR: `gofmt` check, `go vet`, `go test -race ./...` |
-| `site/install.sh` | `curl -fsSL https://shantanu-1607.github.io/Raftra/install.sh \| sh`: detects OS and architecture, downloads `releases/latest/download/raftra-cli_<os>_<arch>.tar.gz`, verifies the checksum, and installs to `~/.local/bin`. If that directory isn't on the user's `PATH`, it prints a hint explaining how to add it. macOS and Linux only. Windows users use the download button. |
+| `.github/workflows/ci.yml` | On pushes to `main` and on PRs: `gofmt` check, `go vet`, `go test -race ./...` |
+| `site/install.sh` | `curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh \| sh`: detects OS and architecture, downloads `releases/latest/download/raftra-cli_<os>_<arch>.tar.gz`, verifies the checksum, and installs to `~/.local/bin`. If that directory isn't on the user's `PATH`, it prints a hint explaining how to add it. macOS and Linux only. Windows users use the download button. |
 
 **macOS note:** the binaries are unsigned. A browser-downloaded binary gets quarantined by Gatekeeper ("developer cannot be verified"), but one installed with `curl` doesn't. The page recommends the install script on macOS and documents `xattr -d com.apple.quarantine raftra-cli` for manual downloads.
 

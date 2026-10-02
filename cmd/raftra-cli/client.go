@@ -116,11 +116,16 @@ func describeError(status int, body []byte) string {
 
 	switch status {
 	case http.StatusRequestEntityTooLarge:
+		if msg == "" {
+			return "Too large: the request is bigger than the playground allows."
+		}
 		return "Too large: " + msg + "."
 	case http.StatusTooManyRequests:
 		return "Slow down: too many writes from your address. Try again in a second."
 	case http.StatusInsufficientStorage:
 		return "The playground is full (" + msg + "). It resets at the top of every hour."
+	case http.StatusBadGateway, http.StatusGatewayTimeout:
+		return "No Raftra node is answering right now. The playground may be restarting (the leader is killed every 10 minutes and data resets at the top of every hour). Try again shortly."
 	case http.StatusServiceUnavailable:
 		return "No elected leader right now. Try again in a moment."
 	default:

@@ -163,10 +163,25 @@ func TestDescribeError(t *testing.T) {
 		{507, `{"error":"store is full (max 10000 keys)"}`, "resets at the top of every hour"},
 		{503, `{"error":"cluster currently has no leader (election in progress)"}`, "No elected leader"},
 		{500, "boom", "HTTP 500: boom"},
+		{502, "", "No Raftra node is answering right now"},
+		{504, "", "No Raftra node is answering right now"},
+		{413, "", "Too large: the request is bigger than the playground allows."},
+		{413, "body too big", "Too large: body too big."},
 	}
 	for _, tc := range tests {
 		if got := describeError(tc.status, []byte(tc.body)); !strings.Contains(got, tc.want) {
 			t.Errorf("describeError(%d) = %q, want it to contain %q", tc.status, got, tc.want)
+		}
+	}
+}
+
+func TestRetryable(t *testing.T) {
+	for status, want := range map[int]bool{
+		502: true, 503: true, 504: true,
+		200: false, 404: false, 413: false, 429: false, 500: false, 507: false,
+	} {
+		if got := retryable(status); got != want {
+			t.Errorf("retryable(%d) = %v, want %v", status, got, want)
 		}
 	}
 }

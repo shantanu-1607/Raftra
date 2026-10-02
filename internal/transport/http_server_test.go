@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -173,5 +174,38 @@ func TestCORSHeaderOnStatus(t *testing.T) {
 	expectStatus(t, rec, http.StatusOK)
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://shantanu-1607.github.io" {
 		t.Fatalf("expected CORS origin header, got %q", got)
+	}
+}
+
+func TestLeaderRedirectURL(t *testing.T) {
+	const leader = "https://leader.example"
+	tests := []struct {
+		reqURL   string
+		want     string
+		wantPath string
+	}{
+		{"/kv/a%3Fb", leader + "/kv/a%3Fb", "/kv/a?b"},
+		{"/kv/a%23b", leader + "/kv/a%23b", "/kv/a#b"},
+		{"/kv/100%25", leader + "/kv/100%25", "/kv/100%"},
+		{"/kv/plain", leader + "/kv/plain", "/kv/plain"},
+		{"/kv/x?foo=1", leader + "/kv/x?foo=1", "/kv/x"},
+	}
+	for _, tc := range tests {
+		in, err := url.Parse(tc.reqURL)
+		if err != nil {
+			t.Fatalf("parse %q: %v", tc.reqURL, err)
+		}
+		got := leaderRedirectURL(leader, in)
+		if got != tc.want {
+			t.Errorf("leaderRedirectURL(%q) = %q, want %q", tc.reqURL, got, tc.want)
+		}
+		out, err := url.Parse(got)
+		if err != nil {
+			t.Errorf("redirect %q does not parse: %v", got, err)
+			continue
+		}
+		if out.Path != tc.wantPath {
+			t.Errorf("redirect %q decodes to path %q, want %q", got, out.Path, tc.wantPath)
+		}
 	}
 }
