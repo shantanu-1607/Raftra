@@ -75,7 +75,26 @@ Expected:
   - Chaos and reset events: `journalctl -t raftra-chaos -t raftra-reset`
 - **Pause chaos:** `sudo systemctl stop raftra-chaos.timer` on all three. Start it again the same way.
 
-## 5. Cost and teardown
+## 5. Security model
+
+- **Public by design:** anyone can read, write and delete any key. It's a playground, so never store real data. Everything is wiped hourly.
+- **Two locks on the internal ports:**
+  - The Lightsail firewall, plus `ufw` on each host (covers IPv6 too), leaves only 22, 80 and 443 open publicly.
+  - Raft gRPC `50051` accepts only the two peer private IPs. Without this, anyone reaching it could forge `AppendEntries` and corrupt the cluster.
+  - `8001` is loopback-only, reachable by Caddy alone.
+- **Abuse limits:**
+  - Per-IP write rate (`429`), key, value and body size caps (`413`), a 10,000-key cap (`507`).
+  - `MemoryMax=300M` restarts only `raftra` if a write flood grows the log.
+  - The hourly wipe bounds log growth.
+- **Host:**
+  - SSH is key-only, with password login refused.
+  - `raftra` runs as an unprivileged, sandboxed user (see `raftra.service`).
+  - Ubuntu security updates install automatically (`unattended-upgrades`).
+  - `/metrics` is hidden by Caddy.
+- **Optional tightening:** restrict SSH (22) in the Lightsail firewall to your IP and tick "Allow Lightsail browser SSH".
+- **Check a node:** `sudo ufw status`, `systemd-analyze security raftra`.
+
+## 6. Cost and teardown
 
 - 3 × $5 = **$15/month**, paid from credits. Static IPs are free **while attached**.
 - **Budget alarm:** in AWS Billing → Budgets, create a $20/month cost budget with an email alert.

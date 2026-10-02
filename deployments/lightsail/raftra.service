@@ -15,5 +15,26 @@ Restart=on-failure
 RestartSec=45
 LimitNOFILE=65536
 
+# Containment: if a flood of writes grows the log too far, systemd kills and
+# restarts only this service instead of the whole 512 MB machine thrashing.
+MemoryMax=300M
+
+# Sandbox: the process can only write its data directory, gains no privileges,
+# and cannot see home directories, devices or kernel settings.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/raftra
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
 [Install]
 WantedBy=multi-user.target

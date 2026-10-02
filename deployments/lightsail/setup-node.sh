@@ -79,6 +79,24 @@ install -d /etc/systemd/system/caddy.service.d
 curl -fsSL -o /etc/systemd/system/caddy.service.d/raftra.conf "$RAW/caddy-raftra.conf"
 curl -fsSL -o /etc/caddy/Caddyfile "$RAW/Caddyfile"
 
+echo "==> Host firewall (ufw) and automatic security updates"
+# Second lock behind the Lightsail firewall. It covers IPv6 too, because
+# raftra-server's 0.0.0.0 listener also accepts IPv6. Raft gRPC (50051) is
+# allowed only from the two peer private IPs; 8001 stays loopback-only (Caddy).
+apt-get install -y -qq ufw unattended-upgrades
+ufw default deny incoming >/dev/null
+ufw default allow outgoing >/dev/null
+for port in 22 80 443; do
+	ufw allow "$port/tcp" >/dev/null
+done
+for i in 1 2 3; do
+	[ "$i" = "$n" ] && continue
+	ufw allow from "${privs[$((i - 1))]}" to any port 50051 proto tcp >/dev/null
+done
+ufw --force enable >/dev/null
+ufw status
+systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
+
 echo "==> Start everything"
 systemctl daemon-reload
 systemctl enable --now raftra-chaos.timer raftra-reset.timer
