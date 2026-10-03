@@ -50,7 +50,7 @@ Inspiration: an engineering-first project page (sticky nav, interactive demo, ho
 3. **Live cluster (`#live`):**
    - Three node readouts: role (LEADER / FOLLOWER / CANDIDATE / DOWN), term, commit index, last applied, response time. Leader gets the amber treatment; down gets red.
    - **Trace strip** per node: last 90 polls (3 min) as thin bars — amber = leader, teal = follower, grey = candidate, red = down.
-   - Countdowns: next chaos kill at `:x5:00`, next reset at `:00:00` (computed from the visitor's clock, UTC-aligned minutes). During `:00:00–:00:40` a "RESETTING — playground wipe in progress" banner shows.
+   - Countdowns (shown once, in the hero): next chaos kill at `:x5:00`, next reset at `:00:00` (computed from the visitor's clock, UTC-aligned minutes). During `:00:00–:00:40` a "RESETTING — playground wipe in progress" banner shows.
    - **Event feed** (newest first, max 40, timestamps `HH:MM:SS`): derived by diffing successive polls — `node1 down`, `node1 back (follower)`, `node2 elected leader (term 15)`, `term 14 → 15`, `cluster reset`, `no leader`. First poll logs `connected — leader nodeX, term N`.
    - Polling: every 2 s, each node independently, `fetch` with 1.5 s `AbortController` timeout, `cache: "no-store"`. Network error, timeout or non-200 (e.g. Caddy `502`) = down. Polling pauses while the tab is hidden.
 4. **Simulator (`#simulator`):** "Now break one yourself."
@@ -67,7 +67,7 @@ Inspiration: an engineering-first project page (sticky nav, interactive demo, ho
    - Load generator (3 nodes, one MacBook, 100 workers, 80% SET): `-nosync` 5,842 ops/s, SET p50 20.84 ms / p99 40.23 ms, 0 errors over 1M ops; durable 93.7 ops/s, SET p50 1,323.76 ms — and why (one fsynced bbolt transaction per proposal under the node mutex; macOS `F_FULLFSYNC`; group commit is the fix, not done yet).
    - Microbenchmarks (Apple M2, `-count=3`): Set 14.83 ms/op, Get 29.36 ns/op (0 allocs), Mixed 2.69 ms/op, replication 15.58 ms per quorum commit.
    - Failover: 245 ms average, 243 ms median, 205–291 ms over 20 trials (target < 2 s).
-   - Tests: 39 tests pass with `-race`; chaos suite 60/60 runs (`-count=10`), 8 fault scenarios.
+   - Tests: 71/71 tests pass with `-race`; chaos scenarios 80/80 runs (8 scenarios × `-count=10`), from `README.md`.
 9. **Build log (`#build`):** 8 phases, one line each (foundation → election → replication → persistence → chaos → deployment & CLI → benchmarks & metrics → docs), plus a "Then it went public" line (limits, Lightsail, chaos timer). Two expandable incident reports (`<details>`): (a) a restarted node with a higher term kept deposing healthy leaders → **pre-vote**; (b) data committed in an old term stayed invisible after failover until the next write → **no-op entry on election**.
 10. **Footer:** GitHub, README, MIT license, "built by Shantanu Singh". Easter egg line: "The three columns behind this page aren't decoration — they're the live nodes' logs."
 
