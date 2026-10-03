@@ -121,7 +121,9 @@ func createThreeNodeCluster() (*clusterNetwork, *RaftNode, *RaftNode, *RaftNode)
 	return net, node1, node2, node3
 }
 
-// forceLeader promotes a node to Leader immediately without waiting for election timers
+// forceLeader promotes a node to Leader immediately without waiting for election timers.
+// Like a real election win, it appends the leader's no-op entry (Raft §8), so the
+// first client command lands one index after the no-op.
 func forceLeader(node *RaftNode, term uint64) {
 	node.mu.Lock()
 	defer node.mu.Unlock()
@@ -170,11 +172,11 @@ func TestSingleNodeProposal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected proposal to succeed, got: %v", err)
 	}
-	if idx != 1 {
-		t.Fatalf("expected log index 1, got %d", idx)
+	if idx != 2 { // index 1 is the leader's no-op
+		t.Fatalf("expected log index 2, got %d", idx)
 	}
-	if node.CommitIndex() != 1 {
-		t.Fatalf("expected commitIndex 1, got %d", node.CommitIndex())
+	if node.CommitIndex() != 2 {
+		t.Fatalf("expected commitIndex 2, got %d", node.CommitIndex())
 	}
 	if val, ok := node.Get("single"); !ok || val != "value123" {
 		t.Fatalf("expected single=value123 in state machine, got ok=%v, val=%s", ok, val)
@@ -190,8 +192,8 @@ func TestBasicSetGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("propose failed: %v", err)
 	}
-	if idx != 1 {
-		t.Fatalf("expected index 1, got %d", idx)
+	if idx != 2 { // index 1 is the leader's no-op
+		t.Fatalf("expected index 2, got %d", idx)
 	}
 
 	// Verify leader applied it to state machine
@@ -208,8 +210,8 @@ func TestBasicSetGet(t *testing.T) {
 		return ok2 && v2 == "shantanu" && ok3 && v3 == "shantanu"
 	}, "followers to apply committed 'user' key")
 
-	if n2.CommitIndex() != 1 || n3.CommitIndex() != 1 {
-		t.Fatalf("expected follower commitIndex to be 1, got n2=%d, n3=%d", n2.CommitIndex(), n3.CommitIndex())
+	if n2.CommitIndex() != 2 || n3.CommitIndex() != 2 {
+		t.Fatalf("expected follower commitIndex to be 2, got n2=%d, n3=%d", n2.CommitIndex(), n3.CommitIndex())
 	}
 }
 
@@ -224,13 +226,13 @@ func TestReplicationToFollowers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to propose %s: %v", cmdVal, err)
 		}
-		if idx != uint64(i+1) {
-			t.Fatalf("expected index %d, got %d", i+1, idx)
+		if idx != uint64(i+2) { // index 1 is the leader's no-op
+			t.Fatalf("expected index %d, got %d", i+2, idx)
 		}
 	}
 
-	// Verify all 3 nodes have the same 3 log entries
-	for i := uint64(1); i <= 3; i++ {
+	// Verify all 3 nodes have the same 4 log entries (no-op + 3 commands)
+	for i := uint64(1); i <= 4; i++ {
 		e1, err1 := n1.storage.GetEntry(i)
 		e2, err2 := n2.storage.GetEntry(i)
 		e3, err3 := n3.storage.GetEntry(i)
@@ -258,11 +260,11 @@ func TestCommitRequiresMajority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected proposal to succeed with 2/3 nodes online, got: %v", err)
 	}
-	if idx1 != 1 {
-		t.Fatalf("expected index 1, got %d", idx1)
+	if idx1 != 2 { // index 1 is the leader's no-op
+		t.Fatalf("expected index 2, got %d", idx1)
 	}
-	if n1.CommitIndex() != 1 {
-		t.Fatalf("expected commitIndex 1, got %d", n1.CommitIndex())
+	if n1.CommitIndex() != 2 {
+		t.Fatalf("expected commitIndex 2, got %d", n1.CommitIndex())
 	}
 
 	// Case B: Both followers disconnected (1/3 reachable -> NO majority!)
@@ -282,8 +284,8 @@ func TestCommitRequiresMajority(t *testing.T) {
 		// Expected: still waiting for quorum!
 	}
 
-	if n1.CommitIndex() != 1 {
-		t.Fatalf("expected commitIndex to stay at 1 without quorum, got %d", n1.CommitIndex())
+	if n1.CommitIndex() != 2 {
+		t.Fatalf("expected commitIndex to stay at 2 without quorum, got %d", n1.CommitIndex())
 	}
 
 	// Reconnect node2 -> Quorum is restored!
@@ -301,8 +303,8 @@ func TestCommitRequiresMajority(t *testing.T) {
 		t.Fatalf("proposal timed out after quorum was restored")
 	}
 
-	if n1.CommitIndex() != 2 {
-		t.Fatalf("expected commitIndex to advance to 2, got %d", n1.CommitIndex())
+	if n1.CommitIndex() != 3 {
+		t.Fatalf("expected commitIndex to advance to 3, got %d", n1.CommitIndex())
 	}
 	if val, ok := n1.Get("quorum_key2"); !ok || val != "val2" {
 		t.Fatalf("expected quorum_key2=val2 applied to state machine")
@@ -312,10 +314,10 @@ func TestCommitRequiresMajority(t *testing.T) {
 // 5. A disconnected follower catches up with all missed entries upon reconnecting
 func TestFollowerCatchUp(t *testing.T) {
 	net, n1, _, n3 := createThreeNodeCluster()
-	forceLeader(n1, 1)
 
-	// Disconnect node3
+	// Disconnect node3 before the election, so it also misses the leader's no-op
 	net.isolate("node3")
+	forceLeader(n1, 1)
 
 	// Propose 2 commands while node3 is offline
 	_, err := n1.ProposeCommand(encodeSet("catch_up_1", "v1"))
@@ -341,8 +343,8 @@ func TestFollowerCatchUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("propose 3 failed: %v", err)
 	}
-	if idx3 != 3 {
-		t.Fatalf("expected index 3, got %d", idx3)
+	if idx3 != 4 { // index 1 is the leader's no-op
+		t.Fatalf("expected index 4, got %d", idx3)
 	}
 
 	// Send heartbeat to propagate commitIndex to node3
@@ -356,8 +358,8 @@ func TestFollowerCatchUp(t *testing.T) {
 		return ok1 && v1 == "v1" && ok2 && v2 == "v2" && ok3 && v3 == "v3"
 	}, "node3 to catch up all 3 entries")
 
-	if n3.CommitIndex() != 3 {
-		t.Fatalf("expected node3 commitIndex 3, got %d", n3.CommitIndex())
+	if n3.CommitIndex() != 4 {
+		t.Fatalf("expected node3 commitIndex 4, got %d", n3.CommitIndex())
 	}
 }
 
@@ -390,16 +392,16 @@ func TestLogConflictResolution(t *testing.T) {
 		{Index: 2, Term: 2, Command: encodeSet("k2", "new_leader_entry")},
 	})
 
-	// Promote n1 to Leader in Term 2
+	// Promote n1 to Leader in Term 2 (its no-op lands at Index 3)
 	forceLeader(n1, 2)
 
-	// Propose a new entry at Index 3 in Term 2
+	// Propose a new entry at Index 4 in Term 2
 	idx, err := n1.ProposeCommand(encodeSet("k3", "term2_entry"))
 	if err != nil {
 		t.Fatalf("proposal failed: %v", err)
 	}
-	if idx != 3 {
-		t.Fatalf("expected index 3, got %d", idx)
+	if idx != 4 {
+		t.Fatalf("expected index 4, got %d", idx)
 	}
 
 	// Propagate commit to followers
@@ -413,7 +415,7 @@ func TestLogConflictResolution(t *testing.T) {
 			return false
 		}
 		// Terms must now be 2, NOT the old Term 1!
-		return e2.Term == 2 && e3.Term == 2 && n3.CommitIndex() == 3
+		return e2.Term == 2 && e3.Term == 2 && n3.CommitIndex() == 4
 	}, "node3 to truncate conflicts and match leader log")
 
 	// Verify node3 state machine has the new values, not the stale uncommitted values
@@ -511,8 +513,8 @@ func TestDeleteOperation(t *testing.T) {
 
 	// 1. SET
 	idx1, err := n1.ProposeCommand(encodeSet("temp_key", "temp_value"))
-	if err != nil || idx1 != 1 {
-		t.Fatalf("SET failed: %v", err)
+	if err != nil || idx1 != 2 { // index 1 is the leader's no-op
+		t.Fatalf("SET failed: idx=%d err=%v", idx1, err)
 	}
 	if v, ok := n1.Get("temp_key"); !ok || v != "temp_value" {
 		t.Fatalf("expected temp_key=temp_value on leader")
@@ -520,8 +522,8 @@ func TestDeleteOperation(t *testing.T) {
 
 	// 2. DELETE
 	idx2, err := n1.ProposeCommand(encodeDelete("temp_key"))
-	if err != nil || idx2 != 2 {
-		t.Fatalf("DELETE failed: %v", err)
+	if err != nil || idx2 != 3 {
+		t.Fatalf("DELETE failed: idx=%d err=%v", idx2, err)
 	}
 	if _, ok := n1.Get("temp_key"); ok {
 		t.Fatalf("expected temp_key to be deleted from leader state machine")
@@ -533,7 +535,7 @@ func TestDeleteOperation(t *testing.T) {
 	waitFor(t, 200*time.Millisecond, func() bool {
 		_, ok2 := n2.Get("temp_key")
 		_, ok3 := n3.Get("temp_key")
-		return !ok2 && !ok3 && n2.CommitIndex() == 2 && n3.CommitIndex() == 2
+		return !ok2 && !ok3 && n2.CommitIndex() == 3 && n3.CommitIndex() == 3
 	}, "followers to apply DELETE command")
 }
 
@@ -551,7 +553,7 @@ func TestMultipleOperations(t *testing.T) {
 	}
 
 	for i, cmd := range commands {
-		expectedIdx := uint64(i + 1)
+		expectedIdx := uint64(i + 2) // index 1 is the leader's no-op
 		idx, err := n1.ProposeCommand(cmd)
 		if err != nil {
 			t.Fatalf("command %d failed: %v", i+1, err)
@@ -608,8 +610,9 @@ func TestConcurrentWrites(t *testing.T) {
 		t.Fatalf("concurrent write error: %v", err)
 	}
 
-	if n1.CommitIndex() != uint64(numWrites) {
-		t.Fatalf("expected commitIndex %d, got %d", numWrites, n1.CommitIndex())
+	// +1 for the leader's no-op at index 1
+	if n1.CommitIndex() != uint64(numWrites+1) {
+		t.Fatalf("expected commitIndex %d, got %d", numWrites+1, n1.CommitIndex())
 	}
 
 	// Verify all writes exist on leader
@@ -625,7 +628,7 @@ func TestConcurrentWrites(t *testing.T) {
 	n1.sendHeartbeats()
 
 	waitFor(t, 300*time.Millisecond, func() bool {
-		return n2.CommitIndex() == uint64(numWrites) && n3.CommitIndex() == uint64(numWrites)
+		return n2.CommitIndex() == uint64(numWrites+1) && n3.CommitIndex() == uint64(numWrites+1)
 	}, "followers to replicate all concurrent writes")
 
 	for i := 0; i < numWrites; i++ {
@@ -644,27 +647,28 @@ func TestConcurrentWrites(t *testing.T) {
 // maxEntriesPerAppend entries so a single RPC never outgrows its timeout/size limit.
 func TestAppendEntriesBatchIsCapped(t *testing.T) {
 	net, n1, _, n3 := createThreeNodeCluster()
+	net.isolate("node3")
 	forceLeader(n1, 1)
 	n1.Start()
 	defer n1.Stop()
 	n3.Start()
 	defer n3.Stop()
 
-	net.isolate("node3")
 	const total = 600 // more than 2 * maxEntriesPerAppend
+	const lastIndex = total + 1 // the leader's no-op is index 1
 	for i := 1; i <= total; i++ {
 		if _, err := n1.ProposeCommand(encodeSet(fmt.Sprintf("k%d", i), "v")); err != nil {
 			t.Fatalf("propose %d failed: %v", i, err)
 		}
 	}
-	if n1.CommitIndex() != total {
-		t.Fatalf("leader commitIndex = %d, want %d", n1.CommitIndex(), total)
+	if n1.CommitIndex() != lastIndex {
+		t.Fatalf("leader commitIndex = %d, want %d", n1.CommitIndex(), lastIndex)
 	}
 
 	net.reconnect("node3")
 	waitFor(t, 10*time.Second, func() bool {
 		_, ok := n3.Get(fmt.Sprintf("k%d", total))
-		return ok && n3.CommitIndex() == total
+		return ok && n3.CommitIndex() == lastIndex
 	}, "reconnected follower to catch up to all entries")
 
 	if got := net.maxEntriesSeen.Load(); got > maxEntriesPerAppend {

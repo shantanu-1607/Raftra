@@ -125,12 +125,12 @@ func TestLogSurvivesCrash(t *testing.T) {
 	forceLeader(node1, 1)
 	// Leader proposes two commands
 	idx1, err := node1.ProposeCommand(encodeSet("key1", "val1"))
-	if err != nil || idx1 != 1 {
-		t.Fatalf("failed proposing key1: %v", err)
+	if err != nil || idx1 != 2 { // index 1 is the leader's no-op
+		t.Fatalf("failed proposing key1: idx=%d err=%v", idx1, err)
 	}
 	idx2, err := node1.ProposeCommand(encodeSet("key2", "val2"))
-	if err != nil || idx2 != 2 {
-		t.Fatalf("failed proposing key2: %v", err)
+	if err != nil || idx2 != 3 {
+		t.Fatalf("failed proposing key2: idx=%d err=%v", idx2, err)
 	}
 
 	// SIMULATE CRASH!
@@ -145,16 +145,20 @@ func TestLogSurvivesCrash(t *testing.T) {
 	recoveredNode.mu.Lock()
 	defer recoveredNode.mu.Unlock()
 	// Verify all log entries survived in memory and storage
-	if len(recoveredNode.persistent.Log) != 3 { // Sentinel (index 0) + 2 entries = 3
-		t.Fatalf("expected 3 entries in log, got %d", len(recoveredNode.persistent.Log))
+	if len(recoveredNode.persistent.Log) != 4 { // Sentinel (index 0) + no-op + 2 entries = 4
+		t.Fatalf("expected 4 entries in log, got %d", len(recoveredNode.persistent.Log))
 	}
-	e1 := recoveredNode.persistent.Log[1]
-	if e1.Index != 1 || e1.Term != 1 {
-		t.Fatalf("corrupted entry 1: %+v", e1)
+	noop := recoveredNode.persistent.Log[1]
+	if noop.Index != 1 || noop.Term != 1 || len(noop.Command) != 0 {
+		t.Fatalf("corrupted no-op entry 1: %+v", noop)
 	}
 	e2 := recoveredNode.persistent.Log[2]
 	if e2.Index != 2 || e2.Term != 1 {
 		t.Fatalf("corrupted entry 2: %+v", e2)
+	}
+	e3 := recoveredNode.persistent.Log[3]
+	if e3.Index != 3 || e3.Term != 1 {
+		t.Fatalf("corrupted entry 3: %+v", e3)
 	}
 }
 
