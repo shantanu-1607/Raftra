@@ -471,7 +471,7 @@ details p b { color: var(--bone); }
   .trace i.t-follower { height: 18px; }
   .trace i.t-candidate { height: 28px; }
   .axis { padding-left: 10px; padding-right: 10px; }
-  .try-grid, .two-col { grid-template-columns: 1fr; gap: 32px; }
+  .try-grid, .two-col { grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .steps { grid-template-columns: 1fr; }
   .num-grid { grid-template-columns: 1fr; }
   .phases { grid-template-columns: 1fr; }
