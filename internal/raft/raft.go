@@ -51,6 +51,9 @@ type RaftNode struct {
 	stopCh         chan struct{}
 	electionTimer  *time.Timer
 	heartbeatTimer *time.Timer
+	// electionDeadline is when the election timer is due. A fire that arrives
+	// earlier is stale: the timer was reset after it fired (see startElection).
+	electionDeadline time.Time
 
 	//client proposals & coordination
 	pendingCommits map[uint64]chan error // index-> commit notification channel
@@ -113,7 +116,9 @@ func (rn *RaftNode) SetTransport(transport Transport) {
 // Start kicks off the Raft node background event loop
 func (rn *RaftNode) Start() {
 	rn.mu.Lock()
-	rn.electionTimer = time.NewTimer(rn.randomizedElectionTimeout())
+	timeout := rn.randomizedElectionTimeout()
+	rn.electionDeadline = time.Now().Add(timeout)
+	rn.electionTimer = time.NewTimer(timeout)
 	rn.heartbeatTimer = time.NewTimer(rn.config.HeartbeatInterval)
 	rn.mu.Unlock()
 	go rn.run()
@@ -158,7 +163,9 @@ func (rn *RaftNode) run() {
 				rn.startElection()
 			} else {
 				// Leaders do not hold elections, reset timer
+				rn.mu.Lock()
 				rn.resetElectionTimer()
+				rn.mu.Unlock()
 			}
 		case <-rn.heartbeatTimer.C:
 			rn.mu.Lock()
@@ -172,7 +179,8 @@ func (rn *RaftNode) run() {
 	}
 }
 
-// resetElectionTimer resets the election timer to a fresh randomized timeout
+// resetElectionTimer resets the election timer to a fresh randomized timeout.
+// NOTE: Caller MUST hold rn.mu.
 func (rn *RaftNode) resetElectionTimer() {
 	if rn.electionTimer != nil {
 		if !rn.electionTimer.Stop() {
@@ -181,7 +189,9 @@ func (rn *RaftNode) resetElectionTimer() {
 			default:
 			}
 		}
-		rn.electionTimer.Reset(rn.randomizedElectionTimeout())
+		timeout := rn.randomizedElectionTimeout()
+		rn.electionDeadline = time.Now().Add(timeout)
+		rn.electionTimer.Reset(timeout)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/shantanu-1607/raftra/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -26,6 +27,20 @@ type GRPCTransport struct {
 	timeout time.Duration                   // Deadline per RPC (e.g. 100ms)
 }
 
+// peerConnectParams makes a peer that comes back reachable again within about a
+// second. gRPC's default reconnect backoff grows to 120 s, so after a 45 s outage
+// (the playground's chaos kill) the leader could not reach the restarted node,
+// and send it heartbeats or data, for a minute or more.
+var peerConnectParams = grpc.ConnectParams{
+	Backoff: backoff.Config{
+		BaseDelay:  100 * time.Millisecond,
+		Multiplier: 1.6,
+		Jitter:     0.2,
+		MaxDelay:   1 * time.Second,
+	},
+	MinConnectTimeout: 1 * time.Second,
+}
+
 // NewGRPCTransport creates and connects outbound gRPC clients to all peers
 func NewGRPCTransport(peers map[string]string, timeout time.Duration) (*GRPCTransport, error) {
 	t := &GRPCTransport{
@@ -36,7 +51,10 @@ func NewGRPCTransport(peers map[string]string, timeout time.Duration) (*GRPCTran
 
 	for peerID, addr := range peers {
 		// Connect to the peer using insecure credentials (no TLS for local dev/testing)
-		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(addr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithConnectParams(peerConnectParams),
+		)
 
 		if err != nil {
 			t.Close()
