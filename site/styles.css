@@ -26,6 +26,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* author display rules must not un-hide */
 html { scroll-behavior: smooth; scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -332,9 +333,11 @@ h3 { font: 600 17px/1.3 var(--sans); }
 .term-bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--rule-2); }
 .term pre { margin: 0; padding: 18px 20px; overflow-x: auto; font: 400 13.5px/1.55 var(--mono); color: var(--bone); }
 .term .p { color: var(--orange); }
-.term .o { color: var(--bone-2); }
 .term .ok { color: var(--teal); }
 .term .warn { color: var(--amber); }
+.term .b-or { color: var(--orange); }
+.term pre b { font-weight: 600; color: var(--bone); }
+.term .o { color: var(--dim); }
 .term figcaption { padding: 10px 20px; border-top: 1px solid var(--rule); color: var(--dim); font-size: 13px; }
 
 /* ---------- Internals ---------- */

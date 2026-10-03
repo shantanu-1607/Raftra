@@ -41,7 +41,7 @@ Notice in the logs that the nodes will initially start as followers, eventually 
 In **Terminal 4**, start the interactive CLI:
 
 ```bash
-./bin/raftra-cli
+./bin/raftra-cli --addr http://localhost:8001,http://localhost:8002,http://localhost:8003
 ```
 
 ### Checking Status
@@ -49,25 +49,25 @@ In **Terminal 4**, start the interactive CLI:
 First, let's see the cluster status and find out who the leader is:
 
 ```text
-● raftra ❯ status
+> status
 ```
 
-You'll see the Role, Term, and Leader ID.
+You'll see which node leads the current term, and every node's role, term and commit index.
 
 ### Writing Data
 
 Let's add some data. The CLI automatically handles HTTP 307 redirects if it hits a follower.
 
 ```text
-● raftra ❯ set message "Hello, Raftra!"
-● raftra ❯ set user:1 "Shantanu"
+> set message "Hello, Raftra!"
+> set user:1 "Shantanu"
 ```
 
 ### Reading Data
 
 ```text
-● raftra ❯ get message
-● raftra ❯ get user:1
+> get message
+> get user:1
 ```
 
 ---
@@ -82,7 +82,7 @@ Raftra is fault-tolerant. Let's prove it by killing the leader!
 4. Go back to the CLI in Terminal 4 and run:
 
 ```text
-● raftra ❯ status
+> status
 ```
 
 You'll see the term has increased, and a new leader has emerged! The remaining two nodes form a majority (2 out of 3), so the cluster is still healthy.
@@ -92,13 +92,13 @@ You'll see the term has increased, and a new leader has emerged! The remaining t
 Verify the data is still there:
 
 ```text
-● raftra ❯ get message
+> get message
 ```
 
 Try writing new data (the cluster still has a quorum):
 
 ```text
-● raftra ❯ set status "Still alive!"
+> set status "Still alive!"
 ```
 
 ### Node Recovery

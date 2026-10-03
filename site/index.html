@@ -227,24 +227,29 @@
         <figure class="term" aria-label="Example terminal session">
           <div class="term-bar"><i></i><i></i><i></i></div>
 <pre><span class="p">$</span> raftra-cli status
-<span class="o">  Role          ◦ Follower
-  Term          5
-  Leader        node3
-  Commit Index  6
-  Last Applied  6</span>
+<span class="b-or">●</span> <b>node2</b> leads term 2
+<span class="o">  ⎿  </span>raftra-n1.duckdns.org  follower   <span class="o">term 2    commit 4</span>
+<span class="o">     </span>raftra-n2.duckdns.org  <span class="b-or">leader</span>     <span class="o">term 2    commit 4</span>
+<span class="o">     </span>raftra-n3.duckdns.org  follower   <span class="o">term 2    commit 4</span>
 
 <span class="p">$</span> raftra-cli set city mumbai
-<span class="ok">  ✔ city = mumbai</span>
+<span class="ok">●</span> <b>city</b> = mumbai
+<span class="o">  ⎿  Committed: a majority of nodes stored it.
+     Followed the leader to raftra-n2.duckdns.org.</span>
 
 <span class="p">$</span> raftra-cli get city
-<span class="o">  city → mumbai</span>
+<span class="ok">●</span> <b>city</b> = mumbai
+<span class="o">  ⎿  Read from raftra-n1.duckdns.org. Reads on a
+     follower can briefly lag the leader.</span>
 
 <span class="p">$</span> raftra-cli delete city
-<span class="ok">  ✔ Deleted city</span>
+<span class="ok">●</span> Deleted <b>city</b>
+<span class="o">  ⎿  Committed: a majority of nodes stored the delete.
+     Followed the leader to raftra-n2.duckdns.org.</span>
 
 <span class="p">$</span> raftra-cli get city
-<span class="warn">  ⚠ Key not found: city</span></pre>
-          <figcaption>Real output, recorded against the playground.</figcaption>
+<span class="warn">●</span> <b>city</b> isn’t set</pre>
+          <figcaption>Real output from CLI v0.2.2, recorded against the playground. Node 1 was a follower, so writes followed the leader to node 2.</figcaption>
         </figure>
       </div>
     </section>

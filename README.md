@@ -182,22 +182,30 @@ make docker-down   # stops the cluster and deletes its volumes
 **Interactive CLI.** It follows 307 redirects to the leader automatically, including Docker hostnames:
 
 ```text
-$ ./bin/raftra-cli
-● raftra ❯ status
-● raftra ❯ set user:1 "Ada Lovelace"
-● raftra ❯ get user:1
-● raftra ❯ delete user:1
+$ ./bin/raftra-cli --addr localhost:8001,localhost:8002,localhost:8003
+> status
+> set user:1 "Ada Lovelace"
+> get user:1
+> delete user:1
 ```
 
 One-off commands work too: `./bin/raftra-cli --addr http://localhost:8002 get user:1`.
 
 `--addr` accepts a comma-separated list, e.g. `--addr http://localhost:8001,http://localhost:8002,http://localhost:8003`. The CLI tries the nodes in order and moves on when one is down or mid-election (HTTP 502/503/504), retrying for up to about 3 seconds. Playground limits come back as plain-language messages.
 
-**Prebuilt CLI.** Every tagged release publishes `raftra-cli` for macOS, Linux and Windows on the [Releases page](https://github.com/shantanu-1607/Raftra/releases). On macOS or Linux:
+**Prebuilt CLI.** Every tagged release publishes `raftra-cli` for macOS, Linux and Windows on the [Releases page](https://github.com/shantanu-1607/Raftra/releases). Install it with one line. On macOS or Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh | sh
 ```
+
+On Windows, in PowerShell (it installs to `%LOCALAPPDATA%\Programs\raftra` and adds that folder to your user `PATH`):
+
+```powershell
+irm https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.ps1 | iex
+```
+
+Both scripts pick the build for your CPU and verify it against `checksums.txt` before installing.
 
 Release builds connect to the public playground cluster by default. Pass `--addr` to use your own cluster. On macOS, if you download the archive with a browser instead, clear the quarantine flag first: `xattr -d com.apple.quarantine raftra-cli`.
 

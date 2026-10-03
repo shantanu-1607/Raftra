@@ -213,7 +213,7 @@ func printWelcome(c *cluster, nodes []nodeStatus) {
 func readBoxed(r *bufio.Reader) (string, bool) {
 	w := boxWidth()
 	fmt.Print(rule("╭"+strings.Repeat("─", w+2)+"╮") + "\n")
-	fmt.Print(rule("│") + " " + orange(">") + strings.Repeat(" ", w) + " " + rule("│") + "\n")
+	fmt.Print(rule("│") + " " + orange(">") + strings.Repeat(" ", w-1) + " " + rule("│") + "\n")
 	fmt.Print(rule("╰"+strings.Repeat("─", w+2)+"╯") + "\n")
 	fmt.Print("  " + dim("help for commands, exit to quit"))
 	// Up to the top border, remember it, then into the box after "│ > ".
