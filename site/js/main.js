@@ -4,6 +4,7 @@ import { detectPlatform, assetURL, assetName } from "./platform.js";
 import { startLive } from "./live.js";
 import { startBackground } from "./background.js";
 import { startSimView } from "./sim-view.js";
+import { startDiagram } from "./diagram.js";
 
 const FAILOVER_MS = [227, 236, 207, 281, 291, 270, 211, 217, 283, 208, 269, 253, 249, 219, 276, 234, 205, 281, 232, 255];
 const OS_NAME = { darwin: "macOS", linux: "Linux", windows: "Windows" };
@@ -127,3 +128,4 @@ drawFailover();
 const background = startBackground(document.getElementById("bg"));
 startLive({ onSnapshot: (readings) => background.update(readings) });
 startSimView(document.getElementById("sim-root"));
+startDiagram(document.querySelector(".diagram"), document.querySelector(".steps"));
