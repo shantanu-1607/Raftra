@@ -39,11 +39,17 @@ export function startBackground(canvas) {
     for (const c of cols) {
       const x = Math.round(c.x * w - colW / 2);
       const base = c.state === "down" ? COLORS.down : COLORS[c.state] || COLORS.idle;
-      const alpha = c.state === "leader" ? 0.17 : c.state === "down" ? 0.13 : 0.08;
+      const alpha = c.state === "leader" ? 0.15 : c.state === "down" ? 0.12 : 0.07;
       // Rail.
       ctx.fillStyle = `rgba(${base.join(",")},0.05)`;
       ctx.fillRect(x + colW / 2 - 0.5, 0, 1, h);
-      // Log blocks, stacked from the bottom. The newest entries sit on top.
+      // Empty log slots up the whole column, so it reads as a log even when it's short.
+      ctx.strokeStyle = `rgba(${base.join(",")},0.045)`;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < capacity; i++) {
+        ctx.strokeRect(x + 0.5, h - 20 - (i + 1) * (BLOCK + GAP) + 0.5, colW - 1, BLOCK - 1);
+      }
+      // Committed entries, stacked from the bottom. The newest sit on top.
       const shown = Math.min(c.blocks, capacity);
       for (let i = 0; i < shown; i++) {
         const y = h - 20 - (i + 1) * (BLOCK + GAP);

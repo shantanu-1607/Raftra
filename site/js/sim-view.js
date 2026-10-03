@@ -49,11 +49,11 @@ export function startSimView(root) {
     const g = el("g", { class: "s-node", tabindex: "0", role: "button", "data-id": n.id }, nodeLayer);
     const timer = el("circle", { cx: x, cy: y, r: R + 8, class: "s-timer", transform: `rotate(-90 ${x} ${y})` }, g);
     el("circle", { cx: x, cy: y, r: R, class: "s-body" }, g);
+    const cross = el("path", { class: "s-x", d: `M${x - 26} ${y - 26} L${x + 26} ${y + 26} M${x + 26} ${y - 26} L${x - 26} ${y + 26}`, visibility: "hidden" }, g);
     const crown = el("path", { class: "s-crown", d: `M${x - 14} ${y - R - 14} l5 -11 l9 7 l9 -7 l5 11 z`, visibility: "hidden" }, g);
     const name = el("text", { x, y: y + 4, class: "s-name" }, g);
     name.textContent = n.id;
     const term = el("text", { x, y: y + 22, class: "s-term" }, g);
-    const cross = el("path", { class: "s-x", d: `M${x - 30} ${y - 30} L${x + 30} ${y + 30} M${x + 30} ${y - 30} L${x - 30} ${y + 30}`, visibility: "hidden" }, g);
     // The log sits under the node, or above it for the bottom two so it stays inside the box.
     const below = y < CY + RING * 0.5;
     const logY = below ? y + R + 16 : y - R - 30;
@@ -77,7 +77,7 @@ export function startSimView(root) {
     dx /= len; dy /= len;
     const L = 300;
     el("line", { x1: mx - dx * L, y1: my - dy * L, x2: mx + dx * L, y2: my + dy * L, class: "s-split" }, splitLayer);
-    const t = el("text", { x: mx + dx * 150 + 10, y: my + dy * 150 - 10, class: "s-split-label" }, splitLayer);
+    const t = el("text", { x: mx + dx * 255 + 12, y: my + dy * 255 + 4, class: "s-split-label" }, splitLayer);
     t.textContent = "network split";
   }
 
@@ -151,7 +151,7 @@ export function startSimView(root) {
     logList.innerHTML = "";
     for (const e of evs.slice(-7).reverse()) {
       const li = document.createElement("li");
-      li.textContent = `${(e.at / 1000).toFixed(2)}s  ${e.text}`;
+      li.textContent = `${String(Math.round(e.at)).padStart(5)} ms  ${e.text}`;
       logList.appendChild(li);
     }
   }
