@@ -52,10 +52,12 @@ func (rn *RaftNode) startElection() {
 	// The event loop received the timer fire before taking rn.mu. If the timer
 	// was reset in between (we granted a vote or heard from a leader), the fire
 	// is stale and the re-armed timer will fire again when it is really due.
-	if time.Now().Before(rn.electionDeadline) {
+	// A node that just won an election has nothing to do either.
+	if time.Now().Before(rn.electionDeadline) || rn.role == Leader {
 		return
 	}
 
+	rn.logger.Warn("election timeout reached, starting election")
 	rn.resetElectionTimer()
 
 	// Single-node cluster: there is nobody to ask.

@@ -159,7 +159,6 @@ func (rn *RaftNode) run() {
 			role := rn.role
 			rn.mu.Unlock()
 			if role != Leader {
-				rn.logger.Warn("election timeout reached, starting election")
 				rn.startElection()
 			} else {
 				// Leaders do not hold elections, reset timer

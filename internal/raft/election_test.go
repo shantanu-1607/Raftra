@@ -3,6 +3,7 @@ package raft
 import (
 	"io"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -328,5 +329,37 @@ func TestPreVoteRefusedWhileLeaderIsAlive(t *testing.T) {
 	}
 	if leader.Role() != Leader || leader.Term() != 3 {
 		t.Fatalf("pre-vote deposed the leader: role=%v term=%d", leader.Role(), leader.Term())
+	}
+}
+
+// 12. A stale election-timer fire (the timer was reset after it fired) starts nothing
+func TestStaleElectionTimerFireIsIgnored(t *testing.T) {
+	node, _ := createTestNode("node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}})
+	var sent atomic.Int32
+	node.SetTransport(&mockTransport{
+		sendVoteFunc: func(peerID string, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
+			sent.Add(1)
+			return &pb.RequestVoteResponse{Term: req.Term - 1, VoteGranted: false}, nil
+		},
+	})
+
+	// The timer was re-armed (e.g. we just granted a vote): its deadline is in the future
+	node.mu.Lock()
+	node.electionDeadline = time.Now().Add(time.Second)
+	node.mu.Unlock()
+	node.startElection()
+	time.Sleep(20 * time.Millisecond)
+	if n := sent.Load(); n != 0 {
+		t.Fatalf("stale timer fire sent %d vote requests, want 0", n)
+	}
+
+	// A fire that is really due holds a pre-vote with both peers
+	node.mu.Lock()
+	node.electionDeadline = time.Now().Add(-time.Millisecond)
+	node.mu.Unlock()
+	node.startElection()
+	waitFor(t, 200*time.Millisecond, func() bool { return sent.Load() == 2 }, "pre-vote requests to both peers")
+	if node.Term() != 0 {
+		t.Fatalf("a refused pre-vote must not change the term, got %d", node.Term())
 	}
 }
