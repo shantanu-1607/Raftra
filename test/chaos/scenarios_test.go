@@ -397,12 +397,15 @@ func TestScenario8_FollowerThatCannotHearLeaderDoesNotDisruptIt(t *testing.T) {
 	cluster := NewTestCluster(t, 3)
 	cluster.Start()
 	defer cluster.Stop()
-	leader := cluster.WaitForLeader(2 * time.Second)
+	cluster.WaitForLeader(2 * time.Second)
 
 	if _, err := cluster.Propose("k1", "v1"); err != nil {
 		t.Fatalf("failed to propose k1: %v", err)
 	}
 	cluster.AssertAllKVConsistent("k1", "v1", 1*time.Second)
+	// Pick the leader only now: start-up elections can briefly crown a node
+	// that loses leadership before the first write commits.
+	leader := cluster.WaitForLeader(1 * time.Second)
 	term := leader.Term()
 
 	deaf := "node1"
@@ -414,7 +417,11 @@ func TestScenario8_FollowerThatCannotHearLeaderDoesNotDisruptIt(t *testing.T) {
 
 	leaders := cluster.GetLeaders()
 	if len(leaders) != 1 || leaders[0].ID() != leader.ID() {
-		t.Fatalf("leader %s was disrupted by %s; leaders now: %v", leader.ID(), deaf, leaders)
+		var now []string
+		for _, l := range leaders {
+			now = append(now, fmt.Sprintf("%s(term %d)", l.ID(), l.Term()))
+		}
+		t.Fatalf("leader %s (term %d) was disrupted by %s; leaders now: %v", leader.ID(), term, deaf, now)
 	}
 	if got := leader.Term(); got != term {
 		t.Fatalf("leader term changed from %d to %d while it was healthy", term, got)
