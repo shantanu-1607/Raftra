@@ -19,7 +19,7 @@ var (
 	cBone   = rgbFG(233, 228, 216)
 	cDim    = rgbFG(142, 151, 157)
 	cRule   = rgbFG(83, 94, 102)
-	cRed    = rgbFG(240, 71, 59) // failures, dead nodes
+	cRed    = rgbFG(240, 71, 59)  // failures, dead nodes
 	cTeal   = rgbFG(85, 207, 171) // committed, success
 	cAmber  = rgbFG(232, 197, 71) // warnings, elections
 )
@@ -135,10 +135,7 @@ func box(w int, lines ...string) string {
 
 // spread puts left and right at the two ends of a line w wide.
 func spread(left, right string, w int) string {
-	gap := w - visibleLen(left) - visibleLen(right)
-	if gap < 1 {
-		gap = 1
-	}
+	gap := max(w-visibleLen(left)-visibleLen(right), 1)
 	return left + strings.Repeat(" ", gap) + right
 }
 
