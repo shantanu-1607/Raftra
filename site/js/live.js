@@ -125,9 +125,7 @@ export function startLive({ onSnapshot = () => {} } = {}) {
     const now = Date.now();
     const chaos = formatCountdown(msUntilChaos(now));
     const wipe = formatCountdown(msUntilReset(now));
-    $("cd-chaos").textContent = chaos;
     $("hero-chaos").textContent = chaos;
-    $("cd-reset").textContent = wipe;
     $("hero-reset").textContent = wipe;
   }
 

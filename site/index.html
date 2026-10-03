@@ -59,7 +59,7 @@
             <span class="clock-label">Next data wipe</span>
             <span class="clock-val dim" id="hero-reset">--:--</span>
           </div>
-          <p class="clock-note">A timer on each server sends <code>SIGKILL</code> to whichever node leads at :05, :15, :25 and so on. It restarts 45 seconds later and has to catch up.</p>
+          <p class="clock-note">At :05, :15, :25 and so on (server time, UTC), a timer sends <code>SIGKILL</code> to whichever node leads. It restarts 45 seconds later and has to catch up.</p>
         </aside>
       </div>
     </section>
@@ -84,11 +84,6 @@
         </div>
 
         <div class="recorder-foot">
-          <div class="countdowns">
-            <p><span>Next leader kill</span><b id="cd-chaos">--:--</b></p>
-            <p><span>Next data wipe</span><b id="cd-reset">--:--</b></p>
-            <p class="countdown-note">Times follow the servers’ UTC clock. A kill only hits the node that is leading at that moment.</p>
-          </div>
           <div class="feed-wrap">
             <h3>What happened</h3>
             <ol class="feed" id="feed" aria-live="polite"></ol>
