@@ -1,8 +1,9 @@
 [Unit]
-Description=Raftra chaos every 10 minutes (:05, :15, ... :55)
+Description=Raftra chaos every 10 minutes (kill at :05, :15, ... :55)
 
 [Timer]
-OnCalendar=*-*-* *:05,15,25,35,45,55:00
+# Starts 5 s early so chaos.sh can note the term before the kill at the full minute.
+OnCalendar=*-*-* *:04,14,24,34,44,54:55
 AccuracySec=1s
 
 [Install]
