@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raftra: a key-value store that survives its leader</title>
+  <meta name="description" content="Raftra is a fault-tolerant key-value store built on a from-scratch Raft implementation in Go. Watch a live 3-node cluster lose its leader every ten minutes, break a simulated one yourself, and install the CLI.">
+  <meta name="theme-color" content="#101315">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23101315'/%3E%3Crect x='6' y='8' width='6' height='16' fill='%23ff7a1a'/%3E%3Crect x='13' y='12' width='6' height='12' fill='%23e9e4d8'/%3E%3Crect x='20' y='12' width='6' height='12' fill='%23e9e4d8'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <canvas id="bg" aria-hidden="true"></canvas>
+  <a class="skip" href="#live">Skip to the live cluster</a>
+
+  <header class="topbar">
+    <div class="wrap topbar-in">
+      <a class="wordmark" href="#top" aria-label="Raftra home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="6" height="16" class="wm-lead"/><rect x="9" y="9" width="6" height="11"/><rect x="16" y="9" width="6" height="11"/></svg>
+        Raftra
+      </a>
+      <nav class="nav" aria-label="Sections">
+        <a href="#live">Live</a>
+        <a href="#simulator">Simulator</a>
+        <a href="#install">Install</a>
+        <a href="#try">Try it</a>
+        <a href="#internals">Internals</a>
+        <a href="#numbers">Numbers</a>
+        <a href="#build">Build log</a>
+        <a href="https://github.com/shantanu-1607/Raftra">GitHub</a>
+      </nav>
+      <a class="pill" id="pill" href="#live" data-state="wait"><i aria-hidden="true"></i><span>Connecting</span></a>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <h1>We kill the leader every ten&nbsp;minutes. <span>Your writes survive.</span></h1>
+          <p class="lede">Raftra is a key-value store that keeps working when machines die. Three servers in Mumbai agree on every write using Raft, a consensus algorithm implemented here from scratch in Go. What you see below is the real cluster.</p>
+          <div class="cmd" data-copy-wrap>
+            <code data-copy-src>curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh | sh</code>
+            <button class="copy" type="button" data-copy>Copy</button>
+          </div>
+          <p class="hero-links"><a href="#install">Windows and other downloads</a><a href="https://github.com/shantanu-1607/Raftra">Read the source</a></p>
+        </div>
+        <aside class="clock" aria-label="Playground schedule">
+          <div class="clock-row">
+            <span class="clock-label">Next leader kill</span>
+            <span class="clock-val" id="hero-chaos">--:--</span>
+          </div>
+          <div class="clock-row">
+            <span class="clock-label">Next data wipe</span>
+            <span class="clock-val dim" id="hero-reset">--:--</span>
+          </div>
+          <p class="clock-note">A timer on each server sends <code>SIGKILL</code> to whichever node leads at :05, :15, :25 and so on. It restarts 45 seconds later and has to catch up.</p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Live cluster -->
+    <section id="live" class="section recorder" aria-labelledby="live-h">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="live-h">The recorder</h2>
+          <p>Every two seconds this page asks each server who it thinks leads. Three minutes of answers scroll right to left. Orange is the leader, bone is a follower, red is a dead node.</p>
+        </div>
+
+        <div class="banner" id="reset-banner" hidden>Hourly wipe in progress. Every node deletes its data and restarts at :00:30.</div>
+        <div class="banner banner-dim" id="offline-note" hidden>This browser can’t reach the cluster right now. The simulator below still works.</div>
+        <noscript><div class="banner banner-dim">The live view needs JavaScript. Install links and commands below work without it.</div></noscript>
+
+        <div class="tape" id="live-nodes">
+          <div class="track" data-id="node1"></div>
+          <div class="track" data-id="node2"></div>
+          <div class="track" data-id="node3"></div>
+          <div class="axis" aria-hidden="true"><span>3 min ago</span><span>2 min</span><span>1 min</span><span>now</span></div>
+        </div>
+
+        <div class="recorder-foot">
+          <div class="countdowns">
+            <p><span>Next leader kill</span><b id="cd-chaos">--:--</b></p>
+            <p><span>Next data wipe</span><b id="cd-reset">--:--</b></p>
+            <p class="countdown-note">Times follow the servers’ UTC clock. A kill only hits the node that is leading at that moment.</p>
+          </div>
+          <div class="feed-wrap">
+            <h3>What happened</h3>
+            <ol class="feed" id="feed" aria-live="polite"></ol>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Simulator -->
+    <section id="simulator" class="section" aria-labelledby="sim-h">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="sim-h">Now break one yourself</h2>
+          <p>Five simulated servers running textbook Raft in your browser, slowed down so you can follow every message. Click a server to crash it, click again to bring it back.</p>
+        </div>
+        <div class="sim" id="sim-root">
+          <div class="sim-stage">
+            <svg id="sim-svg" viewBox="0 0 640 600" role="img" aria-label="Five simulated Raft servers arranged in a ring, exchanging messages"></svg>
+          </div>
+          <div class="sim-side">
+            <div class="sim-controls" id="sim-controls">
+              <button type="button" class="btn btn-primary" data-act="write">Send a write</button>
+              <button type="button" class="btn" data-act="partition" aria-pressed="false">Split the network</button>
+              <div class="speed" role="group" aria-label="Simulation speed">
+                <button type="button" data-speed="0.25">¼×</button><button type="button" data-speed="1">1×</button><button type="button" data-speed="2">2×</button>
+              </div>
+              <button type="button" class="btn btn-quiet" data-act="reset">Start over</button>
+            </div>
+            <p class="sim-caption" id="sim-caption" aria-live="polite">Waiting for the first election.</p>
+            <ol class="sim-log" id="sim-log"></ol>
+            <ul class="legend">
+              <li><i class="lg lg-rv"></i>Vote request</li>
+              <li><i class="lg lg-ae"></i>Append entries or heartbeat</li>
+              <li><i class="lg lg-reply"></i>Reply</li>
+              <li><i class="lg lg-commit"></i>Committed entry</li>
+              <li><i class="lg lg-pending"></i>Not committed yet</li>
+            </ul>
+            <p class="fine">Try this: split the network while the leader sits on the small side, send a write, then heal. The stranded leader accepts the write but can never commit it. The real cluster also runs pre-vote, which this simulator leaves out so elections are easier to see.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Install -->
+    <section id="install" class="section" aria-labelledby="install-h">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="install-h">Get the CLI</h2>
+          <p>One small binary, no dependencies. It talks to the live cluster out of the box and follows the leader when it moves.</p>
+        </div>
+        <div class="install-primary" id="install-primary">
+          <p class="detect">macOS and Linux</p>
+          <div class="cmd" data-copy-wrap>
+            <code data-copy-src>curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh | sh</code>
+            <button class="copy" type="button" data-copy>Copy</button>
+          </div>
+          <p class="fine">The script picks the right build, checks it against <code>checksums.txt</code> and installs to <code>~/.local/bin</code>.</p>
+        </div>
+
+        <div class="matrix-wrap">
+          <table class="matrix" id="install-grid">
+            <caption>Every build, straight from the latest GitHub release</caption>
+            <thead>
+              <tr><th scope="col">System</th><th scope="col">Intel or AMD (x86-64)</th><th scope="col">ARM (64-bit)</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">macOS</th>
+                <td><a data-os="darwin" data-arch="amd64" href="https://github.com/shantanu-1607/Raftra/releases/latest/download/raftra-cli_darwin_amd64.tar.gz">Intel Mac<small>.tar.gz</small></a></td>
+                <td><a data-os="darwin" data-arch="arm64" href="https://github.com/shantanu-1607/Raftra/releases/latest/download/raftra-cli_darwin_arm64.tar.gz">Apple silicon<small>.tar.gz</small></a></td>
+              </tr>
+              <tr>
+                <th scope="row">Linux</th>
+                <td><a data-os="linux" data-arch="amd64" href="https://github.com/shantanu-1607/Raftra/releases/latest/download/raftra-cli_linux_amd64.tar.gz">x86-64<small>.tar.gz</small></a></td>
+                <td><a data-os="linux" data-arch="arm64" href="https://github.com/shantanu-1607/Raftra/releases/latest/download/raftra-cli_linux_arm64.tar.gz">ARM64<small>.tar.gz</small></a></td>
+              </tr>
+              <tr>
+                <th scope="row">Windows</th>
+                <td><a data-os="windows" data-arch="amd64" href="https://github.com/shantanu-1607/Raftra/releases/latest/download/raftra-cli_windows_amd64.zip">x64<small>.zip</small></a></td>
+                <td><a data-os="windows" data-arch="arm64" href="https://github.com/shantanu-1607/Raftra/releases/latest/download/raftra-cli_windows_arm64.zip">ARM64<small>.zip</small></a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="install-notes">
+          <p><strong>macOS, downloaded in a browser:</strong> the binary isn’t signed, so Gatekeeper blocks it. Clear the flag with <code>xattr -d com.apple.quarantine raftra-cli</code>, or use the script above, which avoids it.</p>
+          <p><strong>Windows:</strong> unzip, open a terminal in that folder and run <code>.\raftra-cli.exe status</code>.</p>
+          <p><strong>Verify by hand:</strong> compare against <a href="https://github.com/shantanu-1607/Raftra/releases/latest/download/checksums.txt">checksums.txt</a>. Older versions are on the <a href="https://github.com/shantanu-1607/Raftra/releases">releases page</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Try it -->
+    <section id="try" class="section" aria-labelledby="try-h">
+      <div class="wrap try-grid">
+        <div>
+          <div class="sec-head">
+            <h2 id="try-h">Try it in thirty seconds</h2>
+            <p>Every command goes to the live cluster. Writes land on the leader wherever it is, and the CLI moves on to the next server if one is mid-crash. Run <code>raftra-cli</code> with no arguments for an interactive shell.</p>
+          </div>
+          <h3 class="rules-h">Playground rules</h3>
+          <ul class="rules">
+            <li>Keys up to 128 bytes, values up to 1 KiB, 10,000 keys in total.</li>
+            <li>5 writes a second per IP address, with bursts of up to 10.</li>
+            <li>Everything is wiped at the top of every hour.</li>
+            <li>It’s public. Don’t store anything you wouldn’t post on a wall.</li>
+          </ul>
+        </div>
+        <figure class="term" aria-label="Example terminal session">
+          <div class="term-bar"><i></i><i></i><i></i></div>
+<pre><span class="p">$</span> raftra-cli status
+<span class="o">  Role          ◦ Follower
+  Term          5
+  Leader        node3
+  Commit Index  6
+  Last Applied  6</span>
+
+<span class="p">$</span> raftra-cli set city mumbai
+<span class="ok">  ✔ city = mumbai</span>
+
+<span class="p">$</span> raftra-cli get city
+<span class="o">  city → mumbai</span>
+
+<span class="p">$</span> raftra-cli delete city
+<span class="ok">  ✔ Deleted city</span>
+
+<span class="p">$</span> raftra-cli get city
+<span class="warn">  ⚠ Key not found: city</span></pre>
+          <figcaption>Real output, recorded against the playground.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- Internals -->
+    <section id="internals" class="section" aria-labelledby="int-h">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="int-h">How a write survives</h2>
+          <p>Nothing counts as written until a majority of servers has it on disk. Lose any one machine, including the leader, and every acknowledged write is still there.</p>
+        </div>
+        <div class="diagram-wrap">
+          <svg class="diagram" viewBox="0 0 960 400" role="img" aria-labelledby="dg-t">
+            <title id="dg-t">Write path: the client asks a follower, is redirected to the leader, the leader stores the entry and replicates it to the followers, and replies once a majority has it.</title>
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="dg-head"/></marker>
+              <marker id="ah-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="dg-head-o"/></marker>
+            </defs>
+            <!-- client -->
+            <rect x="330" y="8" width="300" height="46" class="dg-client"/>
+            <text x="480" y="37" class="dg-t dg-c">raftra-cli, curl or your app</text>
+            <!-- arrows from client -->
+            <path d="M360 54 L190 116" class="dg-a" marker-end="url(#ah)"/>
+            <path d="M176 112 L340 52" class="dg-a dg-dash" marker-end="url(#ah)"/>
+            <path d="M480 54 L480 116" class="dg-a dg-o" marker-end="url(#ah-o)"/>
+            <text x="190" y="72" class="dg-s">1  PUT /kv/city</text>
+            <text x="262" y="104" class="dg-s">2  307: ask node1</text>
+            <text x="492" y="92" class="dg-s dg-so">3  PUT again</text>
+
+            <!-- nodes -->
+            <g class="dg-node">
+              <rect x="20" y="120" width="240" height="262"/>
+              <text x="36" y="146" class="dg-name">node2</text><text x="244" y="146" class="dg-role">follower</text>
+            </g>
+            <g class="dg-node dg-leader">
+              <rect x="360" y="120" width="240" height="262"/>
+              <text x="376" y="146" class="dg-name">node1</text><text x="584" y="146" class="dg-role">leader</text>
+            </g>
+            <g class="dg-node">
+              <rect x="700" y="120" width="240" height="262"/>
+              <text x="716" y="146" class="dg-name">node3</text><text x="924" y="146" class="dg-role">follower</text>
+            </g>
+            <g class="dg-layers">
+              <rect x="36" y="160" width="208" height="34"/><rect x="376" y="160" width="208" height="34"/><rect x="716" y="160" width="208" height="34"/>
+              <rect x="36" y="202" width="208" height="34"/><rect x="376" y="202" width="208" height="34"/><rect x="716" y="202" width="208" height="34"/>
+              <rect x="36" y="244" width="208" height="34"/><rect x="376" y="244" width="208" height="34" class="dg-hot"/><rect x="716" y="244" width="208" height="34"/>
+              <rect x="36" y="286" width="208" height="34"/><rect x="376" y="286" width="208" height="34"/><rect x="716" y="286" width="208" height="34"/>
+              <rect x="36" y="328" width="208" height="34"/><rect x="376" y="328" width="208" height="34"/><rect x="716" y="328" width="208" height="34"/>
+            </g>
+            <g class="dg-lt">
+              <text x="140" y="182">HTTPS (Caddy)</text><text x="480" y="182">HTTPS (Caddy)</text><text x="820" y="182">HTTPS (Caddy)</text>
+              <text x="140" y="224">HTTP gateway</text><text x="480" y="224">HTTP gateway</text><text x="820" y="224">HTTP gateway</text>
+              <text x="140" y="266">Raft</text><text x="480" y="266">Raft</text><text x="820" y="266">Raft</text>
+              <text x="140" y="308">Log on disk (bbolt)</text><text x="480" y="308">Log on disk (bbolt)</text><text x="820" y="308">Log on disk (bbolt)</text>
+              <text x="140" y="350">Key-value map</text><text x="480" y="350">Key-value map</text><text x="820" y="350">Key-value map</text>
+            </g>
+            <!-- replication -->
+            <path d="M376 256 L248 256" class="dg-a dg-o" marker-end="url(#ah-o)"/>
+            <path d="M584 256 L712 256" class="dg-a dg-o" marker-end="url(#ah-o)"/>
+            <path d="M248 270 L370 270" class="dg-a dg-dash" marker-end="url(#ah)"/>
+            <path d="M712 270 L590 270" class="dg-a dg-dash" marker-end="url(#ah)"/>
+            <text x="312" y="248" class="dg-s dg-so dg-c">4  append</text>
+            <text x="648" y="248" class="dg-s dg-so dg-c">4  append</text>
+            <text x="312" y="292" class="dg-s dg-c">stored</text>
+            <text x="648" y="292" class="dg-s dg-c">stored</text>
+          </svg>
+        </div>
+        <ol class="steps">
+          <li><b>Any server takes the request.</b> Clients can talk to whichever node answers first.</li>
+          <li><b>Followers point to the leader.</b> They reply with a 307 redirect to the leader’s address.</li>
+          <li><b>The leader writes it to its own log</b> and syncs the disk before going further.</li>
+          <li><b>The leader sends it to the followers</b> over gRPC on the private network. Each one stores it and replies.</li>
+          <li><b>A majority has it, so it’s committed.</b> The leader applies it to the key-value map and answers 200. Followers apply it on the next heartbeat.</li>
+        </ol>
+
+        <div class="two-col">
+          <div>
+            <h3>What it guarantees</h3>
+            <ul class="ticks">
+              <li>At most one leader per term, and votes survive restarts.</li>
+              <li>Every server applies the same writes in the same order, and only after a majority stored them.</li>
+              <li>Any single server can die and no acknowledged write is lost.</li>
+              <li>A server on the losing side of a network split can’t commit anything.</li>
+              <li>Logs that disagree are repaired from the leader’s copy.</li>
+              <li>Pre-vote stops a returning server from disrupting a healthy leader.</li>
+              <li>A new leader commits an empty entry at once, so earlier writes become visible without waiting for traffic.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>What it doesn’t do (yet)</h3>
+            <ul class="crosses">
+              <li>Reads on followers can be stale. There’s no ReadIndex or lease read.</li>
+              <li>No snapshots, so the log grows until the hourly wipe.</li>
+              <li>Cluster membership is fixed at three nodes.</li>
+              <li>No batching: every write is its own disk sync, which is why durable throughput is low.</li>
+              <li>No TLS or auth between nodes. The Raft port is only reachable on the private network.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Numbers -->
+    <section id="numbers" class="section" aria-labelledby="num-h">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="num-h">Measured, including the slow parts</h2>
+          <p>Three nodes on one Apple M2 laptop (macOS, Go 1.26.4), 100 concurrent clients, 80% writes. Full logs are in <a href="https://github.com/shantanu-1607/Raftra/blob/main/benchmark_results.md">benchmark_results.md</a>.</p>
+        </div>
+
+        <div class="num-grid">
+          <figure class="num-card num-wide">
+            <figcaption><h3>Throughput</h3><p>Operations per second through the HTTP API.</p></figcaption>
+            <div class="bars">
+              <div class="bar-row">
+                <div class="bar-label"><b>5,842</b> ops/s <span>without fsync (<code>-nosync</code>, benchmark only)</span></div>
+                <div class="bar"><i style="width:100%"></i></div>
+                <p class="bar-meta">Write latency p50 20.84 ms, p99 40.23 ms. 0 errors in 1,000,000 operations.</p>
+              </div>
+              <div class="bar-row">
+                <div class="bar-label"><b>93.7</b> ops/s <span>with fsync (the default, crash-safe)</span></div>
+                <div class="bar bar-slow"><i style="width:1.6%"></i></div>
+                <p class="bar-meta">Write latency p50 1,323.76 ms. 0 errors in 10,000 operations.</p>
+              </div>
+            </div>
+            <p class="why">Why the gap: each write is its own synced bbolt transaction, taken while the node holds its lock, and on macOS a sync is a full drive-cache flush (<code>F_FULLFSYNC</code>). Group commit would fix it. It isn’t built yet.</p>
+          </figure>
+
+          <figure class="num-card">
+            <figcaption><h3>Failover</h3><p>Leader crash to the first write committed by the new leader, 20 trials.</p></figcaption>
+            <div class="failover">
+              <p class="big"><b>245</b> ms average</p>
+              <svg class="strip" id="failover-strip" viewBox="0 0 400 96" role="img" aria-label="20 failover trials between 205 and 291 milliseconds"></svg>
+              <p class="bar-meta">Median 243 ms, fastest 205 ms, slowest 291 ms. The target was an average under 2,000 ms.</p>
+            </div>
+          </figure>
+
+          <figure class="num-card">
+            <figcaption><h3>Go microbenchmarks</h3><p>In-process cluster with real fsync, <code>-count=3</code>.</p></figcaption>
+            <table class="bench">
+              <tbody>
+                <tr><th scope="row">Read from the state machine</th><td>29.36 ns</td></tr>
+                <tr><th scope="row">Mixed, 80% reads</th><td>2.69 ms</td></tr>
+                <tr><th scope="row">One write, quorum commit</th><td>14.83 ms</td></tr>
+                <tr><th scope="row">Proposal to quorum commit</th><td>15.58 ms</td></tr>
+              </tbody>
+            </table>
+          </figure>
+
+          <figure class="num-card">
+            <figcaption><h3>Tests</h3><p>Run with Go’s race detector on every push.</p></figcaption>
+            <table class="bench">
+              <tbody>
+                <tr><th scope="row">Unit, persistence and chaos tests</th><td>71 / 71</td></tr>
+                <tr><th scope="row">Chaos scenarios, 10 runs each</th><td>80 / 80</td></tr>
+                <tr><th scope="row">Data races found</th><td>0</td></tr>
+              </tbody>
+            </table>
+            <p class="bar-meta">Scenarios: leader crash, follower crash, minority partition, split brain, rapid repeated leader kills, every node down at once, data readable after a full restart, and a follower that can’t hear the leader.</p>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- Build log -->
+    <section id="build" class="section" aria-labelledby="build-h">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="build-h">How it was built</h2>
+          <p>Eight phases from an empty folder to a tested cluster, then a public one.</p>
+        </div>
+        <ol class="phases">
+          <li><b>Foundation</b><span>Protobuf and gRPC interfaces, the node skeleton and its event loop.</span></li>
+          <li><b>Leader election</b><span>Randomized timeouts, terms and votes. Exactly one leader per term.</span></li>
+          <li><b>Log replication</b><span>AppendEntries, majority commit and the HTTP gateway for clients.</span></li>
+          <li><b>Persistence</b><span>Term, vote and log in bbolt, so a crashed node rejoins without losing anything.</span></li>
+          <li><b>Failure testing</b><span>An in-memory network that can cut links and split groups, plus eight fault scenarios.</span></li>
+          <li><b>Deployment and CLI</b><span>Docker Compose for three nodes and a CLI that follows leader redirects.</span></li>
+          <li><b>Benchmarks and metrics</b><span>A load generator, failover timing and Prometheus metrics.</span></li>
+          <li><b>Docs and polish</b><span>README, a demo walkthrough and a full test pass.</span></li>
+          <li class="phase-public"><b>Then it went public</b><span>Abuse limits, release binaries for six platforms, three AWS servers, the ten-minute kill timer and this page.</span></li>
+        </ol>
+
+        <div class="incidents">
+          <h3>Two bugs the public cluster found</h3>
+          <details>
+            <summary>A restarted server kept knocking out a healthy leader</summary>
+            <p>When the kill timer’s victim came back, it had been alone long enough to start an election and raise its term. Its first message carried that higher term, and the working leader stepped down for nothing. Every kill caused a second, pointless election.</p>
+            <p><b>Fix: pre-vote</b> (Raft thesis §9.6). A server now asks whether it could win before raising its term, and peers that heard from a leader recently say no. In three real-process test runs, the leader was knocked out three times before the fix and zero times after. Rejoining now takes 0.2–0.6 s.</p>
+          </details>
+          <details>
+            <summary>Committed data was invisible after a failover</summary>
+            <p>Raft lets a new leader commit entries from earlier terms only indirectly (§5.4.2). Until somebody wrote something new, the last writes before the crash stayed unapplied on the survivors.</p>
+            <p><b>Fix: a no-op entry.</b> Each new leader appends an empty entry in its own term as soon as it wins (§8). Committing it commits everything before it, so the data is back within one heartbeat. Ignoring stale election-timer fires in the same change cut the average failover from 322 ms to 245 ms, and the worst case from 611 ms to 291 ms.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-in">
+      <p class="footer-brand">Raftra, MIT licensed, built by Shantanu Singh.</p>
+      <nav class="footer-links" aria-label="Project links">
+        <a href="https://github.com/shantanu-1607/Raftra">GitHub</a>
+        <a href="https://github.com/shantanu-1607/Raftra#readme">README</a>
+        <a href="https://github.com/shantanu-1607/Raftra/releases">Releases</a>
+        <a href="https://github.com/shantanu-1607/Raftra/blob/main/LICENSE">License</a>
+      </nav>
+      <p class="footer-egg">The three faint columns behind this page are the live servers’ logs. A block appears when a node commits, and a column goes red while its node is dead.</p>
+    </div>
+  </footer>
+</body>
+</html>
