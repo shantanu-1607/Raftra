@@ -385,7 +385,7 @@ details p b { color: var(--bone); }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 1020px) {
-  .hero-grid { grid-template-columns: 1fr; gap: 36px; }
+  .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; }
   .clock { border-left: 0; padding-left: 0; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--rule); padding-top: 24px; }
   .clock-note { grid-column: 1 / -1; }
   .clock-val.dim { font-size: 68px; }
@@ -421,6 +421,10 @@ details p b { color: var(--bone); }
   .matrix tbody th { font-size: 20px; padding: 0 10px; }
   .matrix td a { padding: 14px 10px; flex-direction: column; gap: 2px; }
   .footer-in { grid-template-columns: 1fr; }
+  /* The simulator SVG is drawn at 640 wide; keep its labels legible when it shrinks. */
+  .s-name { font-size: 32px; }
+  .s-term { font-size: 17px; }
+  .s-split-label { font-size: 20px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

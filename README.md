@@ -9,6 +9,8 @@
 ![Tests](https://img.shields.io/badge/Tests-race--detector_on-brightgreen)
 ![Status](https://img.shields.io/badge/Status-Feature_complete-success)
 
+**[Watch the live playground](https://shantanu-1607.github.io/Raftra/)** A public 3-node cluster loses its leader every ten minutes, and the page shows it recover in real time. You can also break a simulated cluster in your browser.
+
 Raftra replicates every write across a cluster of nodes, so the store keeps serving as long as a majority of nodes are up. A leader can crash, a follower can die, or the network can split, and the data stays correct. The consensus engine (elections, log replication, conflict resolution, crash recovery) is written by hand from the [Raft paper](https://raft.github.io/raft.pdf). No Raft library is imported.
 
 | **5,842 ops/s** | **20.8 ms** | **245 ms** | **0 errors** |
@@ -508,6 +510,8 @@ raftra/
 │   ├── failover_test.go    # 10-trial failover timing
 │   └── loadgen/            # HTTP load generator (p50/p95/p99)
 ├── deployments/            # Multi-stage Dockerfile, 3-node docker-compose.yml
+├── site/                   # Landing page (GitHub Pages, no build step) and install.sh
+├── test/site/              # node --test unit tests for the page's logic
 ├── benchmark_results.md    # Raw load-generator results
 ├── DEMO_WALKTHROUGH.md     # Hands-on demo: start, write, kill leader, recover
 └── Makefile

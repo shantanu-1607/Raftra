@@ -20,9 +20,11 @@ Raftra solves the problem of single-server failure by replicating key-value pair
 - `test/chaos/`: The in-memory `ChaosNetwork` and the `TestCluster` harness (real bbolt on disk), plus 8 fault scenarios.
 - `benchmark/`: Go microbenchmarks (`bench_test.go`), the failover timing test (`failover_test.go`), and the HTTP load generator (`loadgen/`).
 - `deployments/`: Multi-stage `Dockerfile` and a 3-node `docker-compose.yml`.
-- `.github/workflows/`: `ci.yml` (gofmt, vet, race tests on pushes to `main` and PRs) and `release.yml` (GoReleaser on `v*` tags).
+- `.github/workflows/`: `ci.yml` (gofmt, vet, race tests on pushes to `main` and PRs), `release.yml` (GoReleaser on `v*` tags) and `pages.yml` (runs `node --test test/site/`, then deploys `site/` to GitHub Pages on pushes to `main` touching `site/**`; the repo's Pages source must be set to GitHub Actions).
 - `.goreleaser.yaml`: builds `raftra-cli` (darwin/linux/windows × amd64/arm64) and `raftra-server` (linux × amd64/arm64) archives plus `checksums.txt`. Release builds set `main.defaultAddr` to the public playground nodes (`raftra-n1/n2/n3.duckdns.org`).
 - `site/install.sh`: `curl | sh` installer for the CLI (verifies checksums; `RAFTRA_INSTALL_DIR` / `RAFTRA_DOWNLOAD_BASE` overrides).
+- `site/`: the landing page at `https://shantanu-1607.github.io/Raftra/` — static ES modules, no framework or build step. `config.js` holds the node URLs (`?nodes=url1,url2,url3` overrides them; the live nodes only allow CORS from `https://shantanu-1607.github.io`, so local testing needs a local cluster started with `-cors-origin '*'`). Pure logic lives in `js/cluster.js` (status diffing, chaos/reset schedule), `js/platform.js` (OS/arch detection, release asset names) and `js/raft-sim.js` (the in-browser 5-node Raft simulator, textbook Raft without pre-vote); `js/live.js`, `js/sim-view.js`, `js/background.js` and `js/main.js` are DOM renderers. The page reads only `GET /status` and never shows keys or values. Numbers on the page are copied from `benchmark_results.md`/`README.md`: update them together.
+- `test/site/`: `node --test` unit tests for the three pure page modules (Node ≥ 20, no npm).
 - `benchmark_results.md`: Recorded load-generator results. `DEMO_WALKTHROUGH.md`: hands-on demo. `plan.md`: the original phase plan.
 - `Makefile`: Build, test, benchmark, protobuf and Docker targets.
 
@@ -51,6 +53,7 @@ Use the `Makefile` for standard workflows:
 - **CLI addresses:** `raftra-cli --addr` takes a comma-separated node list (default `main.defaultAddr`: `http://localhost:8001` for local builds). It fails over on connection errors and HTTP 502/503/504, pausing 300 ms between passes, with a 3 s budget (`cmd/raftra-cli/client.go`).
 - **Releases:** push a tag like `v0.2.0` to publish binaries. Dry run locally: `go run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean` (output in `dist/`, git-ignored). GoReleaser is not a module dependency.
 - **Generate Protobufs:** `make proto` (requires `protoc`, `protoc-gen-go` and `protoc-gen-go-grpc`).
+- **Landing page:** `node --test test/site/` runs its unit tests. Preview with `python3 -m http.server 8080 -d site` and open `http://127.0.0.1:8080/?nodes=http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003` against a local cluster started with `-cors-origin '*'`.
 - **Docker cluster:** `make docker-build`, `make docker-up` and `make docker-down` (`docker-down` also deletes volumes).
 - **Run a node locally:** `./bin/raftra-server -id node1 -port 50051 -http-port 8001 -data-dir data1 -peers node2:localhost:50052,node3:localhost:50053 -http-peers node2:http://localhost:8002,node3:http://localhost:8003`. The full 3-node commands are in `DEMO_WALKTHROUGH.md`. Server flags are `-id`, `-host`, `-port`, `-http-port`, `-peers`, `-http-peers`, `-data-dir`, `-nosync`, plus the playground limits `-max-key-bytes`, `-max-value-bytes`, `-max-keys`, `-write-rate`, `-write-burst`, `-trust-proxy` and `-cors-origin` (all off by default; implemented in `internal/transport/limits.go` and `ratelimit.go`).
 - **Race Detection:** Automatically included in `make test`.
