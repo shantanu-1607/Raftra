@@ -11,7 +11,7 @@
 
 Raftra replicates every write across a cluster of nodes, so the store keeps serving as long as a majority of nodes are up. A leader can crash, a follower can die, or the network can split, and the data stays correct. The consensus engine (elections, log replication, conflict resolution, crash recovery) is written by hand from the [Raft paper](https://raft.github.io/raft.pdf). No Raft library is imported.
 
-| **5,842 ops/s** | **20.8 ms** | **322 ms** | **0 errors** |
+| **5,842 ops/s** | **20.8 ms** | **245 ms** | **0 errors** |
 | :---: | :---: | :---: | :---: |
 | sustained throughput over 1M ops<sup>†</sup> | p50 quorum-replicated write<sup>†</sup> | average leader failover (20 trials) | across 1,010,000 load-test ops |
 
@@ -37,10 +37,10 @@ Raftra replicates every write across a cluster of nodes, so the store keeps serv
 
 ## ✨ Highlights
 
-- **Raft built from scratch.** Randomized election timeouts, term-based step-down, the log up-to-date voting rule (§5.4.1), `nextIndex` backoff for divergent logs, the "only commit entries from your own term" rule (§5.4.2) with a no-op entry on every election win (§8), and pre-vote (thesis §9.6) so a node that cannot hear the leader never disrupts it.
+- **Raft built from scratch.** Randomized election timeouts, term-based step-down, the log up-to-date voting rule (§5.4.1), `nextIndex` backoff for divergent logs, the "only commit entries from your own term" rule (§5.4.2) with a no-op entry on every election win (§8), and pre-vote (thesis §9.6) so a node that cannot hear the leader does not disrupt it.
 - **Durable by default.** `currentTerm`, `votedFor` and every log entry are written to an embedded [bbolt](https://github.com/etcd-io/bbolt) B+tree before an RPC is acknowledged. Nodes recover their state from disk after a crash.
 - **Two client APIs.** gRPC (`KVService`) and an HTTP/JSON gateway. Followers answer writes with `307 Temporary Redirect` to the leader.
-- **Chaos-tested.** An in-memory `ChaosNetwork` cuts virtual cables, isolates nodes and simulates power loss. Six scenarios run on every `make test`, including split-brain and a full cluster blackout.
+- **Chaos-tested.** An in-memory `ChaosNetwork` cuts virtual cables, isolates nodes and simulates power loss. Eight scenarios run on every `make test`, including split-brain, a full cluster blackout and a follower that cannot hear the leader.
 - **Observable.** 12 Prometheus metrics on `/metrics` (term, role, elections, commit index, replication latency histogram and more), plus structured `log/slog` logs.
 - **Batteries included.** An interactive CLI with leader-redirect handling, an HTTP load generator with p50/p95/p99 reporting, Go microbenchmarks, a failover-time benchmark, and a 3-node Docker Compose cluster.
 
@@ -372,16 +372,16 @@ These run a real 3-node cluster in-process with the [chaos harness](test/chaos/h
 
 **Failover time = T2 − T1.** This includes failure detection (election timeout), the election, and one full quorum commit. The test reports min, max and average, and **fails if the average exceeds 2.0 s**. Before the crash, the test waits for the warm-up write to reach every node and then targets the highest-term leader, so it never "crashes" a leader that was already deposed.
 
-**Results** (2 passes × 10 trials, Apple M2):
+**Results** (2 passes × 10 trials, Apple M2, macOS, Go 1.26.4, recorded 2026-10-03 with pre-vote and the no-op entry):
 
 | Metric | Pass 1 | Pass 2 | All 20 trials |
 | :--- | ---: | ---: | ---: |
-| Average | 301 ms | 342 ms | **322 ms** |
-| Median | | | **273 ms** |
-| Min | 191 ms | 228 ms | 191 ms |
-| Max | 611 ms | 575 ms | 611 ms |
+| Average | 243 ms | 247 ms | **245 ms** |
+| Median | | | **243 ms** |
+| Min | 207 ms | 205 ms | 205 ms |
+| Max | 291 ms | 281 ms | 291 ms |
 
-Three out of four failovers finish in about 190–300 ms, which is the 150–300 ms randomized election timeout plus one quorum commit. The occasional 460–611 ms trial matches a split vote that needs a second election round. The average is **about 6× under the 2-second requirement**.
+Every failover finished in 205–291 ms, which is the 150–300 ms randomized election timeout plus a pre-vote round and one quorum commit. The earlier measurement (322 ms average, 191–611 ms) had occasional 460–611 ms trials from a second election round; ignoring stale election-timer fires removed those. The average is **about 8× under the 2-second requirement**.
 
 ### Live metrics (Prometheus)
 
@@ -397,7 +397,7 @@ Every node exposes `GET /metrics`:
 | `raft_log_entries_total` | gauge | Entries in the Raft log |
 | `raft_replication_latency_seconds` | histogram | Leader proposal → majority commit (1 ms–5 s buckets) |
 | `raft_append_entries_total` | counter | AppendEntries RPCs sent (replication and heartbeats) |
-| `raft_request_vote_total` | counter | RequestVote RPCs sent |
+| `raft_request_vote_total` | counter | RequestVote RPCs sent, pre-votes included |
 | `kv_requests_total{type}` | counter | HTTP KV requests by method |
 | `kv_request_duration_seconds{type}` | histogram | HTTP KV latency by method (0.5 ms–1 s buckets) |
 | `kv_store_size` | gauge | Live keys in the state machine |
@@ -418,14 +418,14 @@ make test      # go test -v -race ./...  (every suite, race detector on)
 
 | Check | Result |
 | :--- | :--- |
-| `make test`, all packages with `-race` | ✅ **39/39 tests pass**, no data races, ~16 s |
-| Chaos scenarios ×10 (`-count=10 -race`) | ✅ **60/60 runs pass**, no flakes, ~90 s |
+| `make test`, all packages with `-race` | ✅ **71/71 tests pass**, no data races, ~12 s |
+| Chaos scenarios ×10 (`-count=10 -race`) | ✅ **80/80 runs pass**, no flakes, ~90 s |
 | `go vet ./...` | ✅ clean |
 | `gofmt -l .` | ✅ clean |
 
 | Suite | Location | Covers |
 | :--- | :--- | :--- |
-| **Election** (11 tests) | `internal/raft/election_test.go` | Single-node self-election, stale-term vote rejection, no double voting, log up-to-date check and tie-breaker, candidate step-down, heartbeat timer reset, stale leader rejection, term growth, pre-vote granted without state change, pre-vote refused while a leader is alive |
+| **Election** (12 tests) | `internal/raft/election_test.go` | Single-node self-election, stale-term vote rejection, no double voting, log up-to-date check and tie-breaker, candidate step-down, heartbeat timer reset, stale leader rejection, term growth, pre-vote granted without state change, pre-vote refused while a leader is alive, stale election-timer fire ignored |
 | **Replication** (11 tests) | `internal/raft/replication_test.go` | SET/GET/DELETE, replication to followers, majority-only commit, follower catch-up, log conflict truncation, §5.4.2 current-term commit rule (and the no-op committing older entries), non-leader rejection, ordered multi-ops, concurrent writes |
 | **Persistence** (5 tests) | `internal/raft/persistence_test.go` | Term, vote and log survive a crash; no double vote after restart; follower crash and catch-up; ex-leader restarts and steps down |
 | **Storage** (5 tests) | `internal/storage/bbolt_store_test.go` | Bucket and sentinel init, term and vote round-trip, append and read, truncate, durability after close |
@@ -502,7 +502,7 @@ raftra/
 │   ├── transport/          # gRPC server/client/handlers, HTTP gateway
 │   └── metrics/            # Prometheus collectors
 ├── proto/                  # raft.proto (+ generated *.pb.go, do not edit by hand)
-├── test/chaos/             # ChaosNetwork, TestCluster harness, 6 fault scenarios
+├── test/chaos/             # ChaosNetwork, TestCluster harness, 8 fault scenarios
 ├── benchmark/
 │   ├── bench_test.go       # Go microbenchmarks
 │   ├── failover_test.go    # 10-trial failover timing

@@ -17,7 +17,7 @@ Raftra solves the problem of single-server failure by replicating key-value pair
 - `internal/transport/`: gRPC server, client and handlers (`RaftService` and `KVService`), plus the HTTP REST gateway (`http_server.go`), which also serves `/status` and `/metrics`.
 - `internal/metrics/`: Prometheus collectors (12 metrics). Every method is nil-safe.
 - `proto/`: Protobuf definitions (`raft.proto`) and generated Go code.
-- `test/chaos/`: The in-memory `ChaosNetwork` and the `TestCluster` harness (real bbolt on disk), plus 6 fault scenarios.
+- `test/chaos/`: The in-memory `ChaosNetwork` and the `TestCluster` harness (real bbolt on disk), plus 8 fault scenarios.
 - `benchmark/`: Go microbenchmarks (`bench_test.go`), the failover timing test (`failover_test.go`), and the HTTP load generator (`loadgen/`).
 - `deployments/`: Multi-stage `Dockerfile` and a 3-node `docker-compose.yml`.
 - `.github/workflows/`: `ci.yml` (gofmt, vet, race tests on pushes to `main` and PRs) and `release.yml` (GoReleaser on `v*` tags).
@@ -88,12 +88,12 @@ Modifications must strictly uphold the following Raft safety properties:
   - Durable (fsync): **93.7 ops/s**, SET p50 1,323.76 ms, 0 errors over 10k ops.
 - The durable-mode bottleneck is one fsynced bbolt transaction per proposal, taken while `rn.mu` is held. On macOS, `File.Sync` issues `F_FULLFSYNC`. Group commit or batching is the main lever if performance work is requested.
 - Go microbenchmarks (recorded 2026-10-03, Apple M2, `-count=3`, in-process cluster with fsync): SetOperation **14.83 ms/op**, GetOperation **29.36 ns/op** (0 allocs), MixedWorkload **2.69 ms/op**, ReplicationLatency **15.58 ms** per quorum commit.
-- Failover (`make bench-failover`, 20 trials): **322 ms average**, 273 ms median, 191–611 ms range. The target from `plan.md` is an average under 2 s, enforced by `TestFailoverTimeMeasurement`. The test targets the highest-term leader once the warm-up write has reached every node. Don't revert that, or it will crash already-deposed leaders and report impossible sub-150 ms failovers.
+- Failover (`make bench-failover`, 20 trials, recorded 2026-10-03, Apple M2, Go 1.26.4, with pre-vote): **245 ms average**, 243 ms median, 205–291 ms range. The target from `plan.md` is an average under 2 s, enforced by `TestFailoverTimeMeasurement`. The test targets the highest-term leader once the warm-up write has reached every node. Don't revert that, or it will crash already-deposed leaders and report impossible sub-150 ms failovers.
 - When re-measuring, record the hardware, OS and Go version alongside the numbers. Never invent figures.
 
 ## Observability
 - **Logging:** Inspect structured `slog` output to trace election cycles, RPC handling, commits and state machine applies.
-- **Metrics:** `GET /metrics` on every node's HTTP port. Raft metrics: `raft_current_term`, `raft_node_role` (0=Follower, 1=Candidate, 2=Leader), `raft_leader_elections_total`, `raft_commit_index`, `raft_last_applied`, `raft_log_entries_total`, `raft_replication_latency_seconds` (histogram), `raft_append_entries_total`, `raft_request_vote_total`. KV metrics: `kv_requests_total{type}`, `kv_request_duration_seconds{type}` (histogram), `kv_store_size`.
+- **Metrics:** `GET /metrics` on every node's HTTP port. Raft metrics: `raft_current_term`, `raft_node_role` (0=Follower, 1=Candidate, 2=Leader), `raft_leader_elections_total`, `raft_commit_index`, `raft_last_applied`, `raft_log_entries_total`, `raft_replication_latency_seconds` (histogram), `raft_append_entries_total`, `raft_request_vote_total` (counts pre-vote RPCs too). KV metrics: `kv_requests_total{type}`, `kv_request_duration_seconds{type}` (histogram), `kv_store_size`.
 - **Status:** `GET /status` returns JSON with `role`, `term`, `is_leader`, `leader_id`, `commit_index` and `last_applied`.
 
 ## Generated Files

@@ -70,6 +70,7 @@ Expected:
 ## 4. Operate
 
 - **Upgrade:** `RAFTRA_SSH_KEY=~/Downloads/LightsailDefaultKey-ap-south-1.pem ./deploy.sh v0.2.1`. Download the key from Lightsail → Account → SSH keys.
+  - Upgrading from v0.2.0 to v0.2.1 or later: until all three nodes run the new version, an old node treats a pre-vote as a real vote, so the rollout can cause an extra leader change. It stops once `deploy.sh` finishes.
 - **Logs:**
   - `journalctl -u raftra -f`
   - Chaos and reset events: `journalctl -t raftra-chaos -t raftra-reset`

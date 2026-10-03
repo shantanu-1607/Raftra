@@ -113,6 +113,26 @@ BenchmarkReplicationLatency-8        91    15033553 ns/op   15028 us/quorum-comm
 
 ## Failover Benchmark (`make bench-failover`)
 
+*Recorded: 2026-10-03 · Apple M2, macOS, Go 1.26.4 · 2 passes × 10 trials, each on a fresh 3-node cluster · with pre-vote, the leader no-op entry and stale election-timer fires ignored*
+*Failover time = leader crash → first write committed by the new leader (detection + pre-vote + election + quorum commit)*
+
+```
+Pass 1: 227, 236, 207, 281, 291, 270, 211, 217, 283, 208 ms   → min 207ms  max 291ms  avg 243ms
+Pass 2: 269, 253, 249, 219, 276, 234, 205, 281, 232, 255 ms   → min 205ms  max 281ms  avg 247ms
+```
+
+| Metric (20 trials) | Value |
+|---|---|
+| Average | **245 ms** |
+| Median | 243 ms |
+| Min / Max | 205 ms / 291 ms |
+| Trials ≤ 303 ms | 20 / 20 |
+| Requirement (avg < 2 s) | ✅ met by ~8× |
+
+The 460–611 ms tail of the earlier run (below) is gone: those trials came from a second election round, and ignoring stale election-timer fires removed the extra rounds.
+
+### Earlier run (before pre-vote and the stale-timer fix)
+
 *Recorded: 2026-10-03 · same machine · 2 passes × 10 trials, each on a fresh 3-node cluster*
 *Failover time = leader crash → first write committed by the new leader (detection + election + quorum commit)*
 
