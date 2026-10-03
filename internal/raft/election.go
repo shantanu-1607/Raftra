@@ -153,6 +153,20 @@ func (rn *RaftNode) becomeLeader() {
 
 	rn.logger.Info("election won: become leader", "term", rn.persistent.CurrentTerm)
 
+	// Append a no-op entry from the new term (Raft §8). A leader may only commit
+	// entries from its own term (§5.4.2), so without it, entries left over from
+	// earlier terms (e.g. after every node restarted and lost commitIndex) would
+	// stay uncommitted and unreadable until the next client write. The empty
+	// Command is skipped by applyCommittedEntriesLocked.
+	noop := &pb.LogEntry{Index: lastLogIndex + 1, Term: rn.persistent.CurrentTerm}
+	if err := rn.storage.AppendEntries([]*pb.LogEntry{noop}); err != nil {
+		rn.logger.Error("failed to append no-op entry", "err", err)
+	} else {
+		rn.persistent.Log = append(rn.persistent.Log, noop)
+	}
+	// In a single-node cluster nobody will acknowledge it: commit right away.
+	rn.checkAndUpdateCommitIndexLocked()
+
 	// Send immediate heartbeats using the locked version (we already hold rn.mu!)
 	rn.sendHeartbeatsLocked()
 

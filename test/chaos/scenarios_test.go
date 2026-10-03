@@ -352,3 +352,77 @@ func TestScenario6_FullRegionalBlackout(t *testing.T) {
 		cluster.AssertAllKVConsistent(key, val, 5*time.Second)
 	}
 }
+
+// Scenario 7: Committed Data Is Readable After a Full Restart, Without New Writes
+// commitIndex is volatile, so after every node restarts nobody knows what was committed.
+// A leader may only commit entries from its own term (§5.4.2), so a new leader must
+// append a no-op entry (Raft §8); otherwise old data stays unreadable until a client writes.
+// 1. Commit a write and let every node apply it.
+// 2. Crash all 3 nodes, then restart them from disk.
+// 3. Without proposing anything new, every node must apply the old write again.
+func TestScenario7_DataReadableAfterFullRestartWithoutNewWrites(t *testing.T) {
+	cluster := NewTestCluster(t, 3)
+	cluster.Start()
+	defer cluster.Stop()
+	cluster.WaitForLeader(2 * time.Second)
+
+	if _, err := cluster.Propose("survivor", "v1"); err != nil {
+		t.Fatalf("failed to propose: %v", err)
+	}
+	cluster.AssertAllKVConsistent("survivor", "v1", 1*time.Second)
+
+	ids := []string{"node1", "node2", "node3"}
+	for _, id := range ids {
+		cluster.Crash(id)
+	}
+	for _, id := range ids {
+		cluster.Restart(id)
+	}
+	cluster.WaitForLeader(2 * time.Second)
+
+	// No new Propose: the new leader alone must re-commit the old entry.
+	cluster.AssertAllKVConsistent("survivor", "v1", 2*time.Second)
+}
+
+// Scenario 8: A Node That Cannot Hear the Leader Does Not Depose It
+// On the live playground a restarted node is not reached by the leader for a while
+// (gRPC reconnect backoff). It timed out, bumped its term and took over a healthy
+// cluster. With pre-vote (Raft thesis §9.6) the other nodes, which still hear the
+// leader, refuse to support it, so the leader and term stay the same.
+// 1. Commit a write.
+// 2. Drop leader -> follower traffic only (the follower can still send).
+// 3. Wait several election timeouts: same leader, same term.
+// 4. Heal: the follower catches up on a new write.
+func TestScenario8_FollowerThatCannotHearLeaderDoesNotDisruptIt(t *testing.T) {
+	cluster := NewTestCluster(t, 3)
+	cluster.Start()
+	defer cluster.Stop()
+	leader := cluster.WaitForLeader(2 * time.Second)
+
+	if _, err := cluster.Propose("k1", "v1"); err != nil {
+		t.Fatalf("failed to propose k1: %v", err)
+	}
+	cluster.AssertAllKVConsistent("k1", "v1", 1*time.Second)
+	term := leader.Term()
+
+	deaf := "node1"
+	if leader.ID() == deaf {
+		deaf = "node2"
+	}
+	cluster.BlockOneWay(leader.ID(), deaf)
+	time.Sleep(1 * time.Second) // at least 3 election timeouts (150-300 ms) for the deaf node
+
+	leaders := cluster.GetLeaders()
+	if len(leaders) != 1 || leaders[0].ID() != leader.ID() {
+		t.Fatalf("leader %s was disrupted by %s; leaders now: %v", leader.ID(), deaf, leaders)
+	}
+	if got := leader.Term(); got != term {
+		t.Fatalf("leader term changed from %d to %d while it was healthy", term, got)
+	}
+
+	cluster.Heal()
+	if _, err := cluster.Propose("k2", "v2"); err != nil {
+		t.Fatalf("failed to propose k2: %v", err)
+	}
+	cluster.AssertAllKVConsistent("k2", "v2", 2*time.Second)
+}

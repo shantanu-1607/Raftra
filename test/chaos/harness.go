@@ -79,6 +79,17 @@ func (cn *ChaosNetwork) BlockLink(nodeA, nodeB string) {
 	cn.blockedPairs[nodeB][nodeA] = true
 }
 
+// BlockOneWay drops traffic from sender to receiver only; receiver can still reach sender.
+func (cn *ChaosNetwork) BlockOneWay(sender, receiver string) {
+	cn.mu.Lock()
+	defer cn.mu.Unlock()
+
+	if _, ok := cn.blockedPairs[sender]; !ok {
+		cn.blockedPairs[sender] = make(map[string]bool)
+	}
+	cn.blockedPairs[sender][receiver] = true
+}
+
 // Isolate completely disconnects a node from every other node in the cluster.
 func (cn *ChaosNetwork) Isolate(nodeID string) {
 	cn.mu.Lock()
@@ -476,6 +487,11 @@ func (tc *TestCluster) Partition(nodeID string) {
 // Nodes in groupB can only talk to groupB.
 func (tc *TestCluster) PartitionGroup(groupA, groupB []string) {
 	tc.network.Partition(groupA, groupB)
+}
+
+// BlockOneWay drops messages from sender to receiver, while receiver -> sender still works.
+func (tc *TestCluster) BlockOneWay(sender, receiver string) {
+	tc.network.BlockOneWay(sender, receiver)
 }
 
 // Heal restores all network connections across the entire cluster.
