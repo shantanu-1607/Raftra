@@ -13,7 +13,7 @@ Inspiration: an engineering-first project page (sticky nav, interactive demo, ho
 - Static files only, no framework, no build step, no npm. Plain ES modules.
 - External assets: Google Fonts only. Everything else inline or in `site/`.
 - Served by GitHub Pages from `site/`; project-page base path is `/Raftra/`, so all links are relative.
-- The page reads **only** `GET /status` from the nodes (CORS is allowed for `https://shantanu-1607.github.io`). It never reads or displays keys or values.
+- Besides the GitHub API (star count and latest version, cached per session), the page reads **only** `GET /status` from the nodes (CORS is allowed for `https://shantanu-1607.github.io`). It never reads or displays keys or values.
 - Works at phone width (≥ 360 px), no horizontal scroll. Honors `prefers-reduced-motion` (background and simulator animations pause / step instead of animate).
 - Dark-only theme (the "flight recorder" look is the point).
 

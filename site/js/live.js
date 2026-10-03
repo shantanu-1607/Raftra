@@ -61,6 +61,8 @@ export function startLive({ onSnapshot = () => {} } = {}) {
   for (const el of tape.querySelectorAll(".track")) if (!tracks.has(el.dataset.id)) el.remove();
 
   const pill = $("pill");
+  const markBars = [...document.querySelectorAll("#brand-mark i")];
+  let times = []; // when each poll on the tape happened, aligned with every track's trace
   const feed = $("feed");
   feed.innerHTML = `<li class="feed-empty">Waiting for the first answer.</li>`;
 
@@ -97,6 +99,11 @@ export function startLive({ onSnapshot = () => {} } = {}) {
       const pad = TRACE_LEN - t.trace.length;
       t.bars.forEach((bar, i) => { bar.className = i < pad ? "" : `t-${t.trace[i - pad]}`; });
     }
+    readings.forEach((r, i) => {
+      if (!markBars[i]) return;
+      const role = r.role === "leader" && leader && leader.id !== r.id ? "follower" : r.role;
+      markBars[i].className = `is-${role}`;
+    });
     $("reset-banner").hidden = !(allDown && reset);
     $("offline-note").hidden = !(allDown && !reset);
     if (leader) setPill("leader", `${leader.id} leads term ${leader.term}`);
@@ -114,6 +121,7 @@ export function startLive({ onSnapshot = () => {} } = {}) {
       const reset = inResetWindow(Date.now());
       for (const ev of diffSnapshots(prev, readings, { inReset: reset })) addEvent(ev);
       prev = readings;
+      times = pushTrace(times, Date.now(), TRACE_LEN);
       render(readings, reset);
       onSnapshot(readings);
     } finally {
@@ -129,9 +137,55 @@ export function startLive({ onSnapshot = () => {} } = {}) {
     $("hero-reset").textContent = wipe;
   }
 
+  setupScrubber(tape, tracks, () => times);
   poll();
   setInterval(poll, CONFIG.pollMs);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   tick();
   setInterval(tick, 250);
+}
+
+const ago = (ms) => {
+  const sec = Math.round(ms / 1000);
+  if (sec < 5) return "just now";
+  const m = Math.floor(sec / 60);
+  return m ? `${m} min ${sec % 60} s ago` : `${sec} s ago`;
+};
+
+// Hovering the tape shows a vertical line and what every node was doing at that moment.
+function setupScrubber(tape, tracks, getTimes) {
+  const scrub = document.getElementById("scrub");
+  const tip = document.getElementById("scrub-tip");
+  const first = tracks.values().next().value;
+  if (!first) return;
+  const traceEl = first.el.querySelector(".trace");
+
+  function show(clientX) {
+    const times = getTimes();
+    const box = traceEl.getBoundingClientRect();
+    const tapeBox = tape.getBoundingClientRect();
+    const bars = first.bars;
+    const firstBar = bars[0].getBoundingClientRect();
+    const lastBar = bars[bars.length - 1].getBoundingClientRect();
+    if (clientX < box.left || clientX > box.right || !times.length) return hide();
+    const step = (lastBar.right - firstBar.left) / bars.length;
+    const slot = Math.max(0, Math.min(bars.length - 1, Math.floor((clientX - firstBar.left) / step)));
+    const pad = bars.length - times.length;
+    if (slot < pad) return hide();
+    const k = slot - pad;
+    const x = firstBar.left + (slot + 0.5) * step - tapeBox.left;
+    scrub.style.left = `${x}px`;
+    const rows = [...tracks.entries()].map(([id, t]) => {
+      const role = t.trace[k - (times.length - t.trace.length)] || "unknown";
+      return `<span class="r-${role}">${id} ${role === "down" ? "dead" : role}</span>`;
+    });
+    tip.innerHTML = `<b>${ago(Date.now() - times[k])}</b>${rows.join("<br>")}`;
+    tip.classList.toggle("flip", x > tapeBox.width - 260);
+    scrub.hidden = false;
+  }
+  function hide() { scrub.hidden = true; }
+
+  tape.addEventListener("pointermove", (e) => show(e.clientX));
+  tape.addEventListener("pointerdown", (e) => show(e.clientX));
+  tape.addEventListener("pointerleave", hide);
 }

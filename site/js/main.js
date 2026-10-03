@@ -75,7 +75,53 @@ function drawFailover() {
   svg.innerHTML = s;
 }
 
+// Star count and latest version from GitHub's public API (60 requests an hour per visitor IP),
+// cached for the browser session. The page works the same if this fails.
+async function githubJSON(path) {
+  const key = `gh:${path}`;
+  try {
+    const hit = sessionStorage.getItem(key);
+    if (hit) return JSON.parse(hit);
+  } catch { /* storage can be blocked */ }
+  const res = await fetch(`https://api.github.com/repos/${CONFIG.repo}${path}`, { headers: { Accept: "application/vnd.github+json" } });
+  if (!res.ok) throw new Error(`GitHub ${res.status}`);
+  const data = await res.json();
+  try { sessionStorage.setItem(key, JSON.stringify(data)); } catch { /* fine */ }
+  return data;
+}
+
+async function setupGitHub() {
+  try {
+    const repo = await githubJSON("");
+    const n = repo.stargazers_count;
+    if (typeof n === "number" && n > 0) { // a "0" badge only discourages
+      for (const el of document.querySelectorAll("[data-stars]")) {
+        el.textContent = n.toLocaleString("en");
+        el.hidden = false;
+      }
+    }
+  } catch { /* keep the plain "Star" buttons */ }
+  try {
+    const rel = await githubJSON("/releases/latest");
+    if (rel.tag_name) for (const el of document.querySelectorAll("[data-version]")) el.textContent = rel.tag_name;
+  } catch { /* keep the version baked into the page */ }
+}
+
+// Underline the nav link of the section crossing a thin band 35% down the screen.
+function setupNav() {
+  const links = new Map([...document.querySelectorAll('.nav a[href^="#"]')].map((a) => [a.getAttribute("href").slice(1), a]));
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) links.get(e.target.id)?.classList.toggle("is-here", e.isIntersecting);
+  }, { rootMargin: "-35% 0px -64% 0px" });
+  for (const id of links.keys()) {
+    const el = document.getElementById(id);
+    if (el) io.observe(el);
+  }
+}
+
 setupCopy();
+setupGitHub();
+setupNav();
 setupInstall();
 drawFailover();
 const background = startBackground(document.getElementById("bg"));

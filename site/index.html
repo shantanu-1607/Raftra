@@ -3,8 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Raftra: a key-value store that survives its leader</title>
+  <title>Raftra: a fault-tolerant key-value store</title>
   <meta name="description" content="Raftra is a fault-tolerant key-value store built on a from-scratch Raft implementation in Go. Watch a live 3-node cluster lose its leader every ten minutes, break a simulated one yourself, and install the CLI.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Raftra: a fault-tolerant key-value store">
+  <meta property="og:description" content="A from-scratch Raft cluster in Go whose leader gets killed every ten minutes, live. Break a simulated one in your browser, or install the CLI.">
+  <meta property="og:url" content="https://shantanu-1607.github.io/Raftra/">
+  <meta name="twitter:card" content="summary">
   <meta name="theme-color" content="#101315">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23101315'/%3E%3Crect x='6' y='8' width='6' height='16' fill='%23ff7a1a'/%3E%3Crect x='13' y='12' width='6' height='12' fill='%23e9e4d8'/%3E%3Crect x='20' y='12' width='6' height='12' fill='%23e9e4d8'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,36 +36,45 @@
         <a href="#internals">Internals</a>
         <a href="#numbers">Numbers</a>
         <a href="#build">Build log</a>
-        <a href="https://github.com/shantanu-1607/Raftra">GitHub</a>
       </nav>
       <a class="pill" id="pill" href="#live" data-state="wait"><i aria-hidden="true"></i><span>Connecting</span></a>
+      <a class="star-btn" href="https://github.com/shantanu-1607/Raftra" aria-label="Star Raftra on GitHub"><svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span class="star-label">Star</span><span class="star-count" data-stars hidden></span></a>
     </div>
   </header>
 
   <main id="top">
     <!-- Hero -->
     <section class="hero">
-      <div class="wrap hero-grid">
-        <div class="hero-copy">
-          <h1>We kill the leader every ten&nbsp;minutes. <span>Your writes survive.</span></h1>
-          <p class="lede">Raftra is a key-value store that keeps working when machines die. Three servers in Mumbai agree on every write using Raft, a consensus algorithm implemented here from scratch in Go. What you see below is the real cluster.</p>
-          <div class="cmd" data-copy-wrap>
-            <code data-copy-src>curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh | sh</code>
-            <button class="copy" type="button" data-copy>Copy</button>
+      <div class="wrap">
+        <p class="badge"><a href="https://github.com/shantanu-1607/Raftra/releases/latest" data-version>v0.2.1</a><span>Raft written from scratch in Go, 71 tests passing</span></p>
+        <h1 class="brand">Raftra<span class="brand-mark" id="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span></h1>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <p class="tagline">A fault-tolerant key-value store.</p>
+            <p class="tagline-2">We kill its leader every ten minutes. Your writes survive.</p>
+            <p class="lede">Three servers in Mumbai agree on every write using Raft, a consensus algorithm implemented here by hand in Go. Lose any one of them, leader included, and nothing that was acknowledged is lost. The bars next to the name are those three servers, live.</p>
+            <div class="cmd" data-copy-wrap>
+              <code data-copy-src>curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh | sh</code>
+              <button class="copy" type="button" data-copy>Copy</button>
+            </div>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="#live">Watch it fail live</a>
+              <a class="btn btn-star" href="https://github.com/shantanu-1607/Raftra"><svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.751.751 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg>Star on GitHub<span class="star-count" data-stars hidden></span></a>
+              <a class="hero-link" href="#install">Windows and other downloads</a>
+            </div>
           </div>
-          <p class="hero-links"><a href="#install">Windows and other downloads</a><a href="https://github.com/shantanu-1607/Raftra">Read the source</a></p>
+          <aside class="clock" aria-label="Playground schedule">
+            <div class="clock-row">
+              <span class="clock-label">Next leader kill</span>
+              <span class="clock-val" id="hero-chaos">--:--</span>
+            </div>
+            <div class="clock-row">
+              <span class="clock-label">Next data wipe</span>
+              <span class="clock-val dim" id="hero-reset">--:--</span>
+            </div>
+            <p class="clock-note">At :05, :15, :25 and so on (server time, UTC), a timer sends <code>SIGKILL</code> to whichever node leads. It restarts 45 seconds later and has to catch up.</p>
+          </aside>
         </div>
-        <aside class="clock" aria-label="Playground schedule">
-          <div class="clock-row">
-            <span class="clock-label">Next leader kill</span>
-            <span class="clock-val" id="hero-chaos">--:--</span>
-          </div>
-          <div class="clock-row">
-            <span class="clock-label">Next data wipe</span>
-            <span class="clock-val dim" id="hero-reset">--:--</span>
-          </div>
-          <p class="clock-note">At :05, :15, :25 and so on (server time, UTC), a timer sends <code>SIGKILL</code> to whichever node leads. It restarts 45 seconds later and has to catch up.</p>
-        </aside>
       </div>
     </section>
 
@@ -69,7 +83,7 @@
       <div class="wrap">
         <div class="sec-head">
           <h2 id="live-h">The recorder</h2>
-          <p>Every two seconds this page asks each server who it thinks leads. Three minutes of answers scroll right to left. Orange is the leader, bone is a follower, red is a dead node.</p>
+          <p>Every two seconds this page asks each server who it thinks leads. Three minutes of answers scroll right to left. Orange is the leader, bone is a follower, red is a dead node. Hover or tap the tape to read any moment.</p>
         </div>
 
         <div class="banner" id="reset-banner" hidden>Hourly wipe in progress. Every node deletes its data and restarts at :00:30.</div>
@@ -80,6 +94,7 @@
           <div class="track" data-id="node1"></div>
           <div class="track" data-id="node2"></div>
           <div class="track" data-id="node3"></div>
+          <div class="scrub" id="scrub" aria-hidden="true" hidden><div class="scrub-tip" id="scrub-tip"></div></div>
           <div class="axis" aria-hidden="true"><span>3 min ago</span><span>2 min</span><span>1 min</span><span>now</span></div>
         </div>
 
@@ -416,9 +431,9 @@
 
   <footer class="footer">
     <div class="wrap footer-in">
-      <p class="footer-brand">Raftra, MIT licensed, built by Shantanu Singh.</p>
+      <p class="footer-brand">Raftra, MIT licensed, built by Shantanu Singh. If it taught you something about Raft, a star helps other people find it.</p>
       <nav class="footer-links" aria-label="Project links">
-        <a href="https://github.com/shantanu-1607/Raftra">GitHub</a>
+        <a class="btn btn-star" href="https://github.com/shantanu-1607/Raftra"><svg class="star" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.751.751 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"/></svg>Star on GitHub<span class="star-count" data-stars hidden></span></a>
         <a href="https://github.com/shantanu-1607/Raftra#readme">README</a>
         <a href="https://github.com/shantanu-1607/Raftra/releases">Releases</a>
         <a href="https://github.com/shantanu-1607/Raftra/blob/main/LICENSE">License</a>

@@ -21,6 +21,15 @@ export function startBackground(canvas) {
   const hairlines = [];
   let lastTerm = null;
   let w = 0, h = 0;
+  // The cursor works as a flashlight: log slots near it light up. Mouse and pen only.
+  const pointer = { x: -1e4, y: -1e4, sx: -1e4, sy: -1e4, on: false };
+  const fine = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  const LIGHT = 190;
+  const lit = (x, y) => {
+    if (!pointer.on) return 0;
+    const d = Math.hypot(x - pointer.sx, y - pointer.sy);
+    return d >= LIGHT ? 0 : (1 - d / LIGHT) ** 2;
+  };
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -34,6 +43,15 @@ export function startBackground(canvas) {
 
   function draw(now) {
     ctx.clearRect(0, 0, w, h);
+    if (pointer.on) {
+      pointer.sx += (pointer.x - pointer.sx) * 0.18;
+      pointer.sy += (pointer.y - pointer.sy) * 0.18;
+      const g = ctx.createRadialGradient(pointer.sx, pointer.sy, 0, pointer.sx, pointer.sy, LIGHT * 1.6);
+      g.addColorStop(0, "rgba(255,122,26,0.075)");
+      g.addColorStop(1, "rgba(255,122,26,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(pointer.sx - LIGHT * 1.6, pointer.sy - LIGHT * 1.6, LIGHT * 3.2, LIGHT * 3.2);
+    }
     const colW = Math.max(14, Math.min(26, w * 0.018));
     const capacity = Math.floor((h - 40) / (BLOCK + GAP));
     for (const c of cols) {
@@ -44,10 +62,11 @@ export function startBackground(canvas) {
       ctx.fillStyle = `rgba(${base.join(",")},0.05)`;
       ctx.fillRect(x + colW / 2 - 0.5, 0, 1, h);
       // Empty log slots up the whole column, so it reads as a log even when it's short.
-      ctx.strokeStyle = `rgba(${base.join(",")},0.045)`;
       ctx.lineWidth = 1;
       for (let i = 0; i < capacity; i++) {
-        ctx.strokeRect(x + 0.5, h - 20 - (i + 1) * (BLOCK + GAP) + 0.5, colW - 1, BLOCK - 1);
+        const y = h - 20 - (i + 1) * (BLOCK + GAP);
+        ctx.strokeStyle = `rgba(${base.join(",")},${0.045 + 0.4 * lit(x + colW / 2, y)})`;
+        ctx.strokeRect(x + 0.5, y + 0.5, colW - 1, BLOCK - 1);
       }
       // Committed entries, stacked from the bottom. The newest sit on top.
       const shown = Math.min(c.blocks, capacity);
@@ -61,7 +80,7 @@ export function startBackground(canvas) {
           rgb = COLORS.fresh;
           a = alpha + 0.45 * k;
         }
-        ctx.fillStyle = `rgba(${rgb.join(",")},${a})`;
+        ctx.fillStyle = `rgba(${rgb.join(",")},${a + 0.45 * lit(x + colW / 2, y)})`;
         ctx.fillRect(x, y, colW, BLOCK);
       }
       // Heartbeat pulses travel up the rail.
@@ -128,6 +147,14 @@ export function startBackground(canvas) {
   }
 
   window.addEventListener("resize", resize);
+  if (fine && !reduce) {
+    window.addEventListener("pointermove", (e) => {
+      if (e.pointerType !== "mouse" && e.pointerType !== "pen") return;
+      if (!pointer.on) { pointer.sx = e.clientX; pointer.sy = e.clientY; }
+      pointer.x = e.clientX; pointer.y = e.clientY; pointer.on = true;
+    }, { passive: true });
+    document.documentElement.addEventListener("pointerleave", () => { pointer.on = false; });
+  }
   resize();
   if (!reduce) {
     raf = requestAnimationFrame(loop);
