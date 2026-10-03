@@ -14,9 +14,10 @@ https://raftra-n{1,2,3}.duckdns.org ──► Caddy :443 ──► raftra-server
 | `raftra.env.example` | `/etc/raftra/raftra.env` | Per-node settings (written by `setup-node.sh`) |
 | `raftra.service` | `/etc/systemd/system/` | The node. `Restart=on-failure`, `RestartSec=45` |
 | `Caddyfile`, `caddy-raftra.conf` | `/etc/caddy/`, `caddy.service.d/` | HTTPS reverse proxy, 2 KB body cap, `/metrics` hidden |
-| `chaos.sh` + `raftra-chaos.{service,timer}` | | At `:05, :15, … :55` the leader SIGKILLs itself |
+| `chaos.sh` + `raftra-chaos.{service,timer}` | | At `:05, :15, … :55` the leader SIGKILLs itself. Each node notes the term 5 s earlier, and a leader elected in the meantime is spared, so exactly one node dies per round |
 | `reset.sh` + `raftra-reset.{service,timer}` | | At `:00:00` every node wipes its data; restart at `:00:30` |
 | `deploy.sh` | (laptop) | Roll out a new release one node at a time |
+| `update-config.sh` | (laptop) | Copy this folder's scripts and systemd units to all nodes |
 
 ## 1. Create the instances (Lightsail console)
 
@@ -71,6 +72,7 @@ Expected:
 
 - **Upgrade:** `RAFTRA_SSH_KEY=~/Downloads/LightsailDefaultKey-ap-south-1.pem ./deploy.sh v0.2.1`. Download the key from Lightsail → Account → SSH keys.
   - Upgrading from v0.2.0 to v0.2.1 or later: until all three nodes run the new version, an old node treats a pre-vote as a real vote, so the rollout can cause an extra leader change. It stops once `deploy.sh` finishes.
+- **Changed a script or unit here?** `RAFTRA_SSH_KEY=… ./update-config.sh` copies them to all nodes and restarts the timers.
 - **Logs:**
   - `journalctl -u raftra -f`
   - Chaos and reset events: `journalctl -t raftra-chaos -t raftra-reset`
