@@ -31,7 +31,7 @@ jobs:
           node-version: 22
 
       - name: Site unit tests
-        run: node --test test/site/
+        run: node --test "test/site/*.test.mjs"
 
       - uses: actions/configure-pages@v5
 

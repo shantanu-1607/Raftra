@@ -95,7 +95,7 @@ Inspiration: an engineering-first project page (sticky nav, interactive demo, ho
 
 ## 8. Testing (the developer runs these)
 
-- Unit tests: `node --test test/site/` (pure modules only).
+- Unit tests: `node --test "test/site/*.test.mjs"` (pure modules only).
 - Local serve: `python3 -m http.server 8080 -d site`, open `http://localhost:8080`.
 - Against the live cluster: CORS only allows `https://shantanu-1607.github.io`, so locally the live section shows OFFLINE unless pointed at a local cluster. For local live testing: run a 3-node local cluster with `-cors-origin '*'` and override the node list via `?nodes=http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003` (supported by `config.js`).
 - Kill a local node → card goes DOWN within ~2 s, event logged, background column dims; restart → "back", new leader shown.

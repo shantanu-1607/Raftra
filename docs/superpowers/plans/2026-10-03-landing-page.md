@@ -6,7 +6,7 @@
 
 **Architecture:** Static ES modules, no build step. Logic that can be wrong (status diffing, schedule maths, platform detection, the Raft model) lives in three pure modules under `site/js/` with `node --test` unit tests in `test/site/`. DOM modules (`live.js`, `sim-view.js`, `background.js`, `main.js`) are thin renderers over the pure modules and are verified in the browser.
 
-**Tech Stack:** HTML, CSS (custom properties), vanilla JS ES modules, SVG, Canvas 2D, Google Fonts (Big Shoulders Display, IBM Plex Mono, IBM Plex Sans), Node's built-in test runner (`node --test`, Node ≥ 20), GitHub Actions Pages.
+**Tech Stack:** HTML, CSS (custom properties), vanilla JS ES modules, SVG, Canvas 2D, Google Fonts (Big Shoulders Display, IBM Plex Mono, IBM Plex Sans), Node's built-in test runner (`node --test`, Node ≥ 22), GitHub Actions Pages.
 
 **Spec:** `docs/superpowers/specs/2026-10-03-landing-page-design.md`
 
@@ -115,7 +115,7 @@ test("pushTrace keeps the newest max entries", () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `node --test test/site/`
+Run: `node --test "test/site/*.test.mjs"`
 Expected: FAIL — `Cannot find module '.../site/js/cluster.js'`.
 
 - [ ] **Step 3: Implement** — `site/js/cluster.js`
@@ -206,7 +206,7 @@ export function pushTrace(trace, role, max = 90) {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `node --test test/site/`
+Run: `node --test "test/site/*.test.mjs"`
 Expected: `# pass 7`, `# fail 0`.
 
 - [ ] **Step 5: Commit (developer)** — `feat(site): add pure live-cluster logic with tests`
@@ -268,7 +268,7 @@ test("phones are not desktop builds", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails** — `node --test test/site/` → FAIL, module not found.
+- [ ] **Step 2: Run to verify it fails** — `node --test "test/site/*.test.mjs"` → FAIL, module not found.
 
 - [ ] **Step 3: Implement** — `site/js/platform.js`
 
@@ -311,7 +311,7 @@ export function detectPlatform({ userAgent = "", platform = "", uaPlatform = "",
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes** — `node --test test/site/` → all pass.
+- [ ] **Step 4: Run to verify it passes** — `node --test "test/site/*.test.mjs"` → all pass.
 
 - [ ] **Step 5: Commit (developer)** — `feat(site): add platform detection and release asset helpers`
 
@@ -419,7 +419,7 @@ test("election safety holds under random chaos", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails** — `node --test test/site/` → FAIL, module not found.
+- [ ] **Step 2: Run to verify it fails** — `node --test "test/site/*.test.mjs"` → FAIL, module not found.
 
 - [ ] **Step 3: Implement** — `site/js/raft-sim.js`
 
@@ -635,7 +635,7 @@ export function clientWrite(sim) {
 }
 ```
 
-- [ ] **Step 4: Run to verify it passes** — `node --test test/site/` → all pass (3 files). If the partition test is flaky for a seed, it's a model bug — fix the model, never the seed.
+- [ ] **Step 4: Run to verify it passes** — `node --test "test/site/*.test.mjs"` → all pass (3 files). If the partition test is flaky for a seed, it's a model bug — fix the model, never the seed.
 
 - [ ] **Step 5: Commit (developer)** — `feat(site): add Raft simulator model with tests`
 
@@ -713,7 +713,7 @@ export function clientWrite(sim) {
 
 **Files:**
 - Create: `.github/workflows/pages.yml`
-- Modify: `README.md` (playground section: link to `https://shantanu-1607.github.io/Raftra/`), `AGENTS.md` (Repository Structure: `site/` files, `test/site/`, `pages.yml`; Development Workflow: `node --test test/site/`)
+- Modify: `README.md` (playground section: link to `https://shantanu-1607.github.io/Raftra/`), `AGENTS.md` (Repository Structure: `site/` files, `test/site/`, `pages.yml`; Development Workflow: `node --test "test/site/*.test.mjs"`)
 
 - [ ] **Step 1:** Write `pages.yml`:
 
@@ -747,7 +747,7 @@ jobs:
         with:
           node-version: 22
       - name: Site unit tests
-        run: node --test test/site/
+        run: node --test "test/site/*.test.mjs"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -765,5 +765,5 @@ jobs:
 ### Task 9: Final pass
 
 - [ ] Browser screenshots at 1440 px and 375 px; fix spacing/overflow.
-- [ ] `node --test test/site/` all green; no console errors; Lighthouse accessibility sanity (contrast of muted text on graphite ≥ 4.5:1).
+- [ ] `node --test "test/site/*.test.mjs"` all green; no console errors; Lighthouse accessibility sanity (contrast of muted text on graphite ≥ 4.5:1).
 - [ ] Re-read every number on the page against `benchmark_results.md`.
