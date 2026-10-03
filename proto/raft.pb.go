@@ -84,11 +84,14 @@ func (x *LogEntry) GetCommand() []byte {
 
 // --- RequestVote RPC ---
 type RequestVoteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Term          uint64                 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`                                       // Candidate's current term
-	CandidateId   string                 `protobuf:"bytes,2,opt,name=candidate_id,json=candidateId,proto3" json:"candidate_id,omitempty"`       // Candidate requesting vote (e.g., "node1")
-	LastLogIndex  uint64                 `protobuf:"varint,3,opt,name=last_log_index,json=lastLogIndex,proto3" json:"last_log_index,omitempty"` // Index of candidate's last log entry
-	LastLogTerm   uint64                 `protobuf:"varint,4,opt,name=last_log_term,json=lastLogTerm,proto3" json:"last_log_term,omitempty"`    // Term of candidate's last log entry
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Term         uint64                 `protobuf:"varint,1,opt,name=term,proto3" json:"term,omitempty"`                                       // Candidate's current term
+	CandidateId  string                 `protobuf:"bytes,2,opt,name=candidate_id,json=candidateId,proto3" json:"candidate_id,omitempty"`       // Candidate requesting vote (e.g., "node1")
+	LastLogIndex uint64                 `protobuf:"varint,3,opt,name=last_log_index,json=lastLogIndex,proto3" json:"last_log_index,omitempty"` // Index of candidate's last log entry
+	LastLogTerm  uint64                 `protobuf:"varint,4,opt,name=last_log_term,json=lastLogTerm,proto3" json:"last_log_term,omitempty"`    // Term of candidate's last log entry
+	// Pre-vote (Raft thesis §9.6): "would you vote for me in term `term`?" The voter
+	// answers without changing its own term or vote. Old nodes ignore this field.
+	PreVote       bool `protobuf:"varint,5,opt,name=pre_vote,json=preVote,proto3" json:"pre_vote,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -149,6 +152,13 @@ func (x *RequestVoteRequest) GetLastLogTerm() uint64 {
 		return x.LastLogTerm
 	}
 	return 0
+}
+
+func (x *RequestVoteRequest) GetPreVote() bool {
+	if x != nil {
+		return x.PreVote
+	}
+	return false
 }
 
 type RequestVoteResponse struct {
@@ -668,12 +678,13 @@ const file_proto_raft_proto_rawDesc = "" +
 	"\bLogEntry\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\x04R\x05index\x12\x12\n" +
 	"\x04term\x18\x02 \x01(\x04R\x04term\x12\x18\n" +
-	"\acommand\x18\x03 \x01(\fR\acommand\"\x95\x01\n" +
+	"\acommand\x18\x03 \x01(\fR\acommand\"\xb0\x01\n" +
 	"\x12RequestVoteRequest\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x04R\x04term\x12!\n" +
 	"\fcandidate_id\x18\x02 \x01(\tR\vcandidateId\x12$\n" +
 	"\x0elast_log_index\x18\x03 \x01(\x04R\flastLogIndex\x12\"\n" +
-	"\rlast_log_term\x18\x04 \x01(\x04R\vlastLogTerm\"L\n" +
+	"\rlast_log_term\x18\x04 \x01(\x04R\vlastLogTerm\x12\x19\n" +
+	"\bpre_vote\x18\x05 \x01(\bR\apreVote\"L\n" +
 	"\x13RequestVoteResponse\x12\x12\n" +
 	"\x04term\x18\x01 \x01(\x04R\x04term\x12!\n" +
 	"\fvote_granted\x18\x02 \x01(\bR\vvoteGranted\"\xe0\x01\n" +

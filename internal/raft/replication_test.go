@@ -431,7 +431,7 @@ func TestLogConflictResolution(t *testing.T) {
 
 // 7. Safety Invariant (§5.4.2): Leader cannot commit entries from prior terms by counting replicas alone
 func TestLeaderOnlyCommitsCurrentTerm(t *testing.T) {
-	_, n1, n2, _ := createThreeNodeCluster()
+	net, n1, n2, _ := createThreeNodeCluster()
 
 	// Put an entry from prior Term 1 into n1 and n2
 	entryTerm1 := &pb.LogEntry{
@@ -442,7 +442,11 @@ func TestLeaderOnlyCommitsCurrentTerm(t *testing.T) {
 	_ = n1.storage.AppendEntries([]*pb.LogEntry{entryTerm1})
 	_ = n2.storage.AppendEntries([]*pb.LogEntry{entryTerm1})
 
-	// Promote n1 to Leader in Term 2
+	// Cut both followers off so nobody can acknowledge the new leader's no-op yet
+	net.isolate("node2")
+	net.isolate("node3")
+
+	// Promote n1 to Leader in Term 2 (its no-op lands at Index 2)
 	forceLeader(n1, 2)
 
 	// Simulate that node2 acknowledges entry 1
@@ -461,21 +465,27 @@ func TestLeaderOnlyCommitsCurrentTerm(t *testing.T) {
 		t.Fatalf("entry from prior term should not be applied yet")
 	}
 
-	// Now propose an entry in the CURRENT term (Term 2)
-	idx2, err := n1.ProposeCommand(encodeSet("current_key", "current_val"))
+	// Reconnect node2: once it stores the Term 2 no-op, committing the no-op
+	// indirectly commits entry 1, with no client write needed (Raft §8)
+	net.reconnect("node2")
+	n1.sendHeartbeats()
+	waitFor(t, 300*time.Millisecond, func() bool {
+		return n1.CommitIndex() == 2
+	}, "leader to commit its no-op once a majority stores it")
+	if val, ok := n1.Get("prior_key"); !ok || val != "prior_val" {
+		t.Fatalf("expected prior_key to be committed indirectly, got %s", val)
+	}
+
+	// A client write in the current term lands after the no-op
+	idx3, err := n1.ProposeCommand(encodeSet("current_key", "current_val"))
 	if err != nil {
 		t.Fatalf("propose failed: %v", err)
 	}
-	if idx2 != 2 {
-		t.Fatalf("expected index 2, got %d", idx2)
+	if idx3 != 3 {
+		t.Fatalf("expected index 3, got %d", idx3)
 	}
-
-	// Committing entry 2 in current term indirectly commits entry 1!
-	if n1.CommitIndex() != 2 {
-		t.Fatalf("expected commitIndex to advance to 2, got %d", n1.CommitIndex())
-	}
-	if val, ok := n1.Get("prior_key"); !ok || val != "prior_val" {
-		t.Fatalf("expected prior_key to be committed indirectly, got %s", val)
+	if n1.CommitIndex() != 3 {
+		t.Fatalf("expected commitIndex to advance to 3, got %d", n1.CommitIndex())
 	}
 	if val, ok := n1.Get("current_key"); !ok || val != "current_val" {
 		t.Fatalf("expected current_key to be committed, got %s", val)
@@ -654,7 +664,7 @@ func TestAppendEntriesBatchIsCapped(t *testing.T) {
 	n3.Start()
 	defer n3.Stop()
 
-	const total = 600 // more than 2 * maxEntriesPerAppend
+	const total = 600           // more than 2 * maxEntriesPerAppend
 	const lastIndex = total + 1 // the leader's no-op is index 1
 	for i := 1; i <= total; i++ {
 		if _, err := n1.ProposeCommand(encodeSet(fmt.Sprintf("k%d", i), "v")); err != nil {

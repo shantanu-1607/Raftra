@@ -2,6 +2,7 @@ package raft
 
 import (
 	"sync"
+	"time"
 
 	pb "github.com/shantanu-1607/raftra/proto"
 )
@@ -38,9 +39,79 @@ func (rn *RaftNode) checkTerm(incomingTerm uint64) bool {
 	return false
 }
 
+// startElection runs when the election timer fires. It first holds a pre-vote
+// (Raft thesis §9.6): it asks the peers whether they would vote for it in the
+// next term, without anyone changing their term. Only if a majority says yes
+// does it start the real election (campaignLocked). A node that merely cannot
+// hear a healthy leader (e.g. a restarted node the leader has not reconnected
+// to yet) is refused, so it can no longer bump the term and depose that leader.
 func (rn *RaftNode) startElection() {
 	rn.mu.Lock()
+	defer rn.mu.Unlock()
 
+	rn.resetElectionTimer()
+
+	// Single-node cluster: there is nobody to ask.
+	if len(rn.peers) == 0 {
+		rn.campaignLocked()
+		return
+	}
+
+	term := rn.persistent.CurrentTerm
+	lastLogIndex, _ := rn.storage.LastIndex()
+	lastLogTerm, _ := rn.storage.LastTerm()
+	req := &pb.RequestVoteRequest{
+		Term:         term + 1,
+		CandidateId:  rn.config.NodeID,
+		LastLogIndex: lastLogIndex,
+		LastLogTerm:  lastLogTerm,
+		PreVote:      true,
+	}
+
+	rn.logger.Info("starting pre-vote", "proposed_term", term+1)
+
+	// Shared by the goroutines below, which only touch them while holding rn.mu.
+	votes := 1 // our own
+	majority := (len(rn.peers)+1)/2 + 1
+	started := time.Now()
+	campaigned := false
+
+	for peerID := range rn.peers {
+		go func(peer string) {
+			rn.metrics.IncRequestVoteTotal()
+			res, err := rn.transport.SendRequestVote(peer, req)
+			if err != nil {
+				rn.logger.Debug("failed to send pre-vote to peer", "peer", peer, "err", err)
+				return
+			}
+
+			rn.mu.Lock()
+			defer rn.mu.Unlock()
+
+			// A voter in a newer term refused us: adopt its term (§5.1)
+			if rn.checkTerm(res.Term) {
+				rn.resetElectionTimer()
+				return
+			}
+			// Ignore stale answers: we already moved on, or a leader has contacted us since
+			if campaigned || rn.role == Leader || rn.persistent.CurrentTerm != term || rn.lastLeaderContact.After(started) {
+				return
+			}
+			if res.VoteGranted {
+				votes++
+				if votes >= majority {
+					campaigned = true
+					rn.campaignLocked()
+				}
+			}
+		}(peerID)
+	}
+}
+
+// campaignLocked runs a real election (§5.2): increment the term, vote for
+// ourselves and request votes from every peer.
+// NOTE: Caller MUST hold rn.mu.
+func (rn *RaftNode) campaignLocked() {
 	// 1. Increment current term and become Candidate
 	rn.persistent.CurrentTerm++
 	rn.role = Candidate
@@ -81,11 +152,8 @@ func (rn *RaftNode) startElection() {
 	// Fast path: In a single-node cluster, we already have the majority!
 	if votesReceived >= majority {
 		rn.becomeLeader()
-		rn.mu.Unlock()
 		return
 	}
-
-	rn.mu.Unlock()
 
 	var voteMu sync.Mutex
 
@@ -193,6 +261,10 @@ func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVot
 	rn.mu.Lock()
 	defer rn.mu.Unlock()
 
+	if req.PreVote {
+		return rn.handlePreVoteLocked(req)
+	}
+
 	// Rule 1: Reject votes if candidate's term is older than our current term
 	if req.Term < rn.persistent.CurrentTerm {
 		return &pb.RequestVoteResponse{
@@ -209,17 +281,8 @@ func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVot
 	// Rule 2: We can only vote if we haven't voted yet in this term, or already voted for this candidate
 	canVote := rn.persistent.VotedFor == "" || rn.persistent.VotedFor == req.CandidateId
 
-	// Rule 3: Election Safety (Raft §5.4.1) — Log Up-To-Date check:
-	// A voter denies its vote if its own log is more up-to-date than the candidate's.
-	lastLogIndex, _ := rn.storage.LastIndex()
-	lastLogTerm, _ := rn.storage.LastTerm()
-
-	logsUpToDate := false
-	if req.LastLogTerm > lastLogTerm {
-		logsUpToDate = true
-	} else if req.LastLogTerm == lastLogTerm && req.LastLogIndex >= lastLogIndex {
-		logsUpToDate = true
-	}
+	// Rule 3: Election Safety (Raft §5.4.1) — Log Up-To-Date check
+	logsUpToDate := rn.candidateLogUpToDateLocked(req)
 
 	if canVote && logsUpToDate {
 		rn.persistent.VotedFor = req.CandidateId
@@ -238,6 +301,36 @@ func (rn *RaftNode) HandleRequestVote(req *pb.RequestVoteRequest) *pb.RequestVot
 		Term:        rn.persistent.CurrentTerm,
 		VoteGranted: false,
 	}
+}
+
+// handlePreVoteLocked answers a pre-vote (Raft thesis §9.6) without changing any
+// state: no term update, no recorded vote, no timer reset. It grants only if the
+// proposed term is newer than ours, the candidate's log is at least as up-to-date
+// as ours (§5.4.1), and we have not heard from a leader within the minimum
+// election timeout. A leader never grants, since it is the live leader.
+// NOTE: Caller MUST hold rn.mu.
+func (rn *RaftNode) handlePreVoteLocked(req *pb.RequestVoteRequest) *pb.RequestVoteResponse {
+	leaderIsAlive := rn.role == Leader || time.Since(rn.lastLeaderContact) < rn.config.ElectionTimeoutMin
+	grant := req.Term > rn.persistent.CurrentTerm && !leaderIsAlive && rn.candidateLogUpToDateLocked(req)
+
+	return &pb.RequestVoteResponse{
+		Term:        rn.persistent.CurrentTerm,
+		VoteGranted: grant,
+	}
+}
+
+// candidateLogUpToDateLocked reports whether the candidate's log is at least as
+// up-to-date as ours (§5.4.1): a later last term wins; with equal last terms, the
+// longer log wins. A voter denies its vote to a candidate whose log is behind.
+// NOTE: Caller MUST hold rn.mu.
+func (rn *RaftNode) candidateLogUpToDateLocked(req *pb.RequestVoteRequest) bool {
+	lastLogIndex, _ := rn.storage.LastIndex()
+	lastLogTerm, _ := rn.storage.LastTerm()
+
+	if req.LastLogTerm != lastLogTerm {
+		return req.LastLogTerm > lastLogTerm
+	}
+	return req.LastLogIndex >= lastLogIndex
 }
 
 // HandleAppendEntries processes incoming AppendEntries RPCs from the leader (replicated logs and heartbeats).
@@ -267,6 +360,7 @@ func (rn *RaftNode) HandleAppendEntries(req *pb.AppendEntriesRequest) *pb.Append
 
 	// Record the current leader ID and reset election timer (§5.2)
 	rn.leaderID = req.LeaderId
+	rn.lastLeaderContact = time.Now()
 	rn.resetElectionTimer()
 
 	// 3. Log consistency check (§5.3):

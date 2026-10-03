@@ -35,6 +35,10 @@ type RaftNode struct {
 	leader     *LeaderState // nil when not leader
 	leaderID   string       //id of the current known leader
 
+	// lastLeaderContact is when we last accepted AppendEntries from a current leader.
+	// Pre-votes are refused while it is recent (see handlePreVoteLocked).
+	lastLeaderContact time.Time
+
 	// State Machine, Persistence & Transport
 	kvStore   *kvstore.KVStore
 	storage   storage.StorageBackend

@@ -41,6 +41,9 @@ message RequestVoteRequest {
   string candidate_id = 2;       // Candidate requesting vote (e.g., "node1")
   uint64 last_log_index = 3;     // Index of candidate's last log entry
   uint64 last_log_term = 4;      // Term of candidate's last log entry
+  // Pre-vote (Raft thesis §9.6): "would you vote for me in term `term`?" The voter
+  // answers without changing its own term or vote. Old nodes ignore this field.
+  bool pre_vote = 5;
 }
 
 message RequestVoteResponse {

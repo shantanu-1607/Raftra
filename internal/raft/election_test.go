@@ -255,9 +255,13 @@ func TestRejectAppendEntriesFromStaleLeader(t *testing.T) {
 // 9. Candidate increments term on repeated election timeouts
 func TestTermIncrementsAcrossElections(t *testing.T) {
 	node, _ := createTestNode("node1", []PeerConfig{{ID: "node2"}})
-	// Mock peer to always reject votes so election fails
+	// Mock peer passes the pre-vote (still in the old term) but always rejects
+	// the real vote, so every real election fails
 	mock := &mockTransport{
 		sendVoteFunc: func(peerID string, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
+			if req.PreVote {
+				return &pb.RequestVoteResponse{Term: req.Term - 1, VoteGranted: true}, nil
+			}
 			return &pb.RequestVoteResponse{Term: req.Term, VoteGranted: false}, nil
 		},
 	}
@@ -275,5 +279,54 @@ func TestTermIncrementsAcrossElections(t *testing.T) {
 	}
 	if node.Role() != Candidate {
 		t.Fatalf("expected node to remain Candidate, got %v", node.Role())
+	}
+}
+
+// 10. Pre-vote (thesis §9.6) is granted when no leader is heard, and changes nothing on the voter
+func TestPreVoteGrantedWithoutChangingVoterState(t *testing.T) {
+	node, store := createTestNode("node1", []PeerConfig{{ID: "node2"}})
+	_ = store.SaveTerm(3)
+	node.persistent.CurrentTerm = 3
+
+	resp := node.HandleRequestVote(&pb.RequestVoteRequest{
+		Term:        4,
+		CandidateId: "node2",
+		PreVote:     true,
+	})
+	if !resp.VoteGranted {
+		t.Fatalf("expected pre-vote granted when no leader has been heard from")
+	}
+	if node.Term() != 3 {
+		t.Fatalf("pre-vote must not change the voter's term, got %d", node.Term())
+	}
+	node.mu.Lock()
+	votedFor := node.persistent.VotedFor
+	node.mu.Unlock()
+	if votedFor != "" {
+		t.Fatalf("pre-vote must not record a vote, got votedFor=%q", votedFor)
+	}
+}
+
+// 11. Pre-vote is refused while a leader is alive (heard recently, or we are the leader)
+func TestPreVoteRefusedWhileLeaderIsAlive(t *testing.T) {
+	follower, _ := createTestNode("node1", []PeerConfig{{ID: "node2"}, {ID: "node3"}})
+	follower.HandleAppendEntries(&pb.AppendEntriesRequest{Term: 3, LeaderId: "node2"})
+
+	preVote := &pb.RequestVoteRequest{Term: 4, CandidateId: "node3", PreVote: true}
+	if resp := follower.HandleRequestVote(preVote); resp.VoteGranted {
+		t.Fatalf("follower granted a pre-vote right after hearing from the leader")
+	}
+	if follower.Term() != 3 {
+		t.Fatalf("refused pre-vote must not change the term, got %d", follower.Term())
+	}
+
+	leader, _ := createTestNode("node2", []PeerConfig{{ID: "node1"}, {ID: "node3"}})
+	leader.SetTransport(&mockTransport{})
+	forceLeader(leader, 3)
+	if resp := leader.HandleRequestVote(preVote); resp.VoteGranted {
+		t.Fatalf("leader granted a pre-vote against itself")
+	}
+	if leader.Role() != Leader || leader.Term() != 3 {
+		t.Fatalf("pre-vote deposed the leader: role=%v term=%d", leader.Role(), leader.Term())
 	}
 }
