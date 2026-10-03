@@ -1,6 +1,6 @@
 # Raftra public playground on AWS Lightsail
 
-Three `$5` Lightsail instances in Mumbai (`ap-south-1`), one per availability zone. Each runs `raftra-server` under systemd, with Caddy in front for automatic HTTPS. The design is in `docs/superpowers/specs/2026-10-03-public-playground-design.md`.
+Three `$5` Lightsail instances in Mumbai (`ap-south-1`), one per availability zone. Each runs `raftra-server` under systemd, with Caddy in front for automatic HTTPS. The steps below are the full runbook; the playground's limits and schedule are summarised in the root `README.md` and `AGENTS.md`.
 
 ```
 https://raftra-n{1,2,3}.duckdns.org ──► Caddy :443 ──► raftra-server :8001
