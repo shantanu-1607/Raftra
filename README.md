@@ -37,7 +37,7 @@ Raftra replicates every write across a cluster of nodes, so the store keeps serv
 
 ## ✨ Highlights
 
-- **Raft built from scratch.** Randomized election timeouts, term-based step-down, the log up-to-date voting rule (§5.4.1), `nextIndex` backoff for divergent logs, and the "only commit entries from your own term" rule (§5.4.2).
+- **Raft built from scratch.** Randomized election timeouts, term-based step-down, the log up-to-date voting rule (§5.4.1), `nextIndex` backoff for divergent logs, the "only commit entries from your own term" rule (§5.4.2) with a no-op entry on every election win (§8), and pre-vote (thesis §9.6) so a node that cannot hear the leader never disrupts it.
 - **Durable by default.** `currentTerm`, `votedFor` and every log entry are written to an embedded [bbolt](https://github.com/etcd-io/bbolt) B+tree before an RPC is acknowledged. Nodes recover their state from disk after a crash.
 - **Two client APIs.** gRPC (`KVService`) and an HTTP/JSON gateway. Followers answer writes with `307 Temporary Redirect` to the leader.
 - **Chaos-tested.** An in-memory `ChaosNetwork` cuts virtual cables, isolates nodes and simulates power loss. Six scenarios run on every `make test`, including split-brain and a full cluster blackout.
@@ -425,16 +425,16 @@ make test      # go test -v -race ./...  (every suite, race detector on)
 
 | Suite | Location | Covers |
 | :--- | :--- | :--- |
-| **Election** (9 tests) | `internal/raft/election_test.go` | Single-node self-election, stale-term vote rejection, no double voting, log up-to-date check and tie-breaker, candidate step-down, heartbeat timer reset, stale leader rejection, term growth |
-| **Replication** (11 tests) | `internal/raft/replication_test.go` | SET/GET/DELETE, replication to followers, majority-only commit, follower catch-up, log conflict truncation, §5.4.2 current-term commit rule, non-leader rejection, ordered multi-ops, concurrent writes |
+| **Election** (11 tests) | `internal/raft/election_test.go` | Single-node self-election, stale-term vote rejection, no double voting, log up-to-date check and tie-breaker, candidate step-down, heartbeat timer reset, stale leader rejection, term growth, pre-vote granted without state change, pre-vote refused while a leader is alive |
+| **Replication** (11 tests) | `internal/raft/replication_test.go` | SET/GET/DELETE, replication to followers, majority-only commit, follower catch-up, log conflict truncation, §5.4.2 current-term commit rule (and the no-op committing older entries), non-leader rejection, ordered multi-ops, concurrent writes |
 | **Persistence** (5 tests) | `internal/raft/persistence_test.go` | Term, vote and log survive a crash; no double vote after restart; follower crash and catch-up; ex-leader restarts and steps down |
 | **Storage** (5 tests) | `internal/storage/bbolt_store_test.go` | Bucket and sentinel init, term and vote round-trip, append and read, truncate, durability after close |
 | **Metrics** (2 tests) | `internal/metrics/metrics_test.go` | Custom registry wiring, nil-safety |
-| **Chaos** (6 scenarios) | `test/chaos/scenarios_test.go` | See below |
+| **Chaos** (8 scenarios) | `test/chaos/scenarios_test.go` | See below |
 
 ### Chaos scenarios
 
-The `ChaosNetwork` is an in-memory switch between nodes. It can block single links, isolate nodes, partition groups and heal. Every message is `proto.Clone`d to simulate serialization, so nodes never share pointers. "Crash" stops a node and closes its bbolt file, and "restart" rebuilds the node from that file.
+The `ChaosNetwork` is an in-memory switch between nodes. It can block single links (both ways or one way), isolate nodes, partition groups and heal. Every message is `proto.Clone`d to simulate serialization, so nodes never share pointers. "Crash" stops a node and closes its bbolt file, and "restart" rebuilds the node from that file.
 
 | # | Scenario | Fault | Assertion |
 | :---: | :--- | :--- | :--- |
@@ -444,6 +444,8 @@ The `ChaosNetwork` is an in-memory switch between nodes. It can block single lin
 | 4 | **Leader partition / split-brain** | Isolate the leader | Majority elects a new leader, old leader never receives new writes, steps down and syncs after heal |
 | 5 | **Rapid cascading leader kills** | 5 nodes, kill 3 leaders in a row | With 2/5 alive **no leader is elected**. After reboot all 4 keys are intact. |
 | 6 | **Full regional blackout** | Kill all 3 nodes at once | Cluster recovers from disk and all 100 keys are consistent on every node |
+| 7 | **Full restart, no new writes** | Kill and restart all 3 nodes | Old data is readable on every node again **without** a new client write (the new leader's no-op commits it) |
+| 8 | **Follower that cannot hear the leader** | Drop leader → follower traffic only | Same leader and same term after 1 s (pre-vote refused); the follower catches up after heal |
 
 ```bash
 go test -v -race -run TestScenario ./test/chaos/...   # chaos scenarios only
@@ -461,7 +463,9 @@ go test -v -race -run TestScenario ./test/chaos/...   # chaos scenarios only
 | **Leader Completeness** | Voters refuse candidates whose last log term/index is behind their own (§5.4.1). |
 | **State Machine Safety** | Entries are applied strictly in index order and only up to `commitIndex`. Leaders count replicas only for entries from their current term (§5.4.2). |
 
-**Persistence comes first.** Term, vote and log entries go to bbolt before an RPC response is returned. `commitIndex` and `lastApplied` are volatile, as in the paper: a restarted node rebuilds its KV map as the leader's `leaderCommit` arrives.
+**Persistence comes first.** Term, vote and log entries go to bbolt before an RPC response is returned. `commitIndex` and `lastApplied` are volatile, as in the paper: a restarted node rebuilds its KV map as the leader's `leaderCommit` arrives. Because a leader may only commit entries from its own term, every new leader appends an empty no-op entry (§8); committing it also commits everything before it, so data written in earlier terms becomes readable without waiting for a client write.
+
+**Stable leadership.** Before a real election, a node holds a pre-vote (Raft thesis §9.6): it asks whether peers would vote for it in the next term, and nobody changes their term. Peers refuse while they still hear from a leader, so a node that was cut off, or just restarted and not yet reconnected, cannot bump the term and depose a healthy leader. Election timer fires that arrive after the timer was re-armed are ignored, and peers' gRPC connections retry at most every second, so a restarted node rejoins within about a second.
 
 ---
 
