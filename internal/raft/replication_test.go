@@ -231,6 +231,17 @@ func TestReplicationToFollowers(t *testing.T) {
 		}
 	}
 
+	// A proposal returns once a majority stores it, so the slower follower may
+	// still be appending the last entry: wait until every node has all 4.
+	waitFor(t, 500*time.Millisecond, func() bool {
+		for _, n := range []*RaftNode{n1, n2, n3} {
+			if last, _ := n.storage.LastIndex(); last < 4 {
+				return false
+			}
+		}
+		return true
+	}, "every node to store the no-op and all 3 commands")
+
 	// Verify all 3 nodes have the same 4 log entries (no-op + 3 commands)
 	for i := uint64(1); i <= 4; i++ {
 		e1, err1 := n1.storage.GetEntry(i)
