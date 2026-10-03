@@ -1,6 +1,6 @@
 // Entry point: wires the live recorder, background, simulator and install section together.
 import { CONFIG } from "../config.js";
-import { detectPlatform, assetURL, assetName } from "./platform.js";
+import { detectPlatform } from "./platform.js";
 import { startLive } from "./live.js";
 import { startBackground } from "./background.js";
 import { startSimView } from "./sim-view.js";
@@ -27,7 +27,28 @@ function setupCopy() {
   });
 }
 
+function selectOS(os) {
+  for (const tab of document.querySelectorAll("[data-os-tab]")) {
+    tab.setAttribute("aria-selected", String(tab.dataset.osTab === os));
+    tab.tabIndex = tab.dataset.osTab === os ? 0 : -1;
+  }
+  for (const panel of document.querySelectorAll("[data-os-panel]")) panel.hidden = panel.dataset.osPanel !== os;
+}
+
 async function setupInstall() {
+  const tabs = [...document.querySelectorAll("[data-os-tab]")];
+  tabs.forEach((tab, i) => {
+    tab.addEventListener("click", () => selectOS(tab.dataset.osTab));
+    tab.addEventListener("keydown", (e) => {
+      const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!d) return;
+      const next = tabs[(i + d + tabs.length) % tabs.length];
+      selectOS(next.dataset.osTab);
+      next.focus();
+    });
+  });
+  selectOS("darwin");
+
   const nav = navigator;
   let uaArch = "", uaPlatform = "";
   try {
@@ -38,27 +59,27 @@ async function setupInstall() {
     }
   } catch { /* client hints are optional */ }
   const { os, arch, guessed } = detectPlatform({ userAgent: nav.userAgent, platform: nav.platform, uaPlatform, uaArch });
-  const box = document.getElementById("install-primary");
-  const detect = box.querySelector(".detect");
+  const detect = document.getElementById("install-detect");
 
   if (os === "mobile") {
-    detect.innerHTML = `The CLI runs on macOS, Linux and Windows.<small>Open this page on a computer to install it. The recorder and simulator work fine on your phone.</small>`;
+    detect.innerHTML = `Install it on a computer<small>The CLI runs on macOS, Linux and Windows. Pick your system below, or keep watching the cluster from your phone.</small>`;
     return;
   }
-  if (!os || !arch) return; // keep the default macOS/Linux instructions
-
-  const link = document.querySelector(`.matrix a[data-os="${os}"][data-arch="${arch}"]`);
-  link?.classList.add("is-you");
-  const what = `${OS_NAME[os]} on ${ARCH_NAME[os][arch]}`;
-  const hint = guessed ? "Your browser doesn’t say which chip this Mac has. If it’s an Intel Mac, the script still picks the right build." : "Detected from your browser.";
+  if (!os) return;
+  selectOS(os);
 
   if (os === "windows") {
-    box.innerHTML = `
-      <p class="detect">${what}<small>${hint}</small></p>
-      <a class="btn btn-primary" href="${assetURL(CONFIG.repo, os, arch)}">Download ${assetName(os, arch)}</a>
-      <p class="fine">Unzip it, open a terminal in that folder and run <code>.\\raftra-cli.exe status</code>.</p>`;
-    return;
+    // The hero's one-liner is for macOS and Linux; give Windows visitors theirs.
+    const hero = document.querySelector(".hero .cmd");
+    hero.classList.add("cmd-ps");
+    hero.querySelector("[data-copy-src]").textContent = document.querySelector("#os-windows .cmd-ps [data-copy-src]").textContent;
   }
+  if (!arch) return;
+  document.querySelector(`.matrix a[data-os="${os}"][data-arch="${arch}"]`)?.classList.add("is-you");
+  const what = `${OS_NAME[os]} on ${ARCH_NAME[os][arch]}`;
+  const hint = guessed
+    ? "Your browser doesn’t say which chip this Mac has. The script checks for itself."
+    : "Detected from your browser. The script checks your CPU for itself too.";
   detect.innerHTML = `${what}<small>${hint}</small>`;
 }
 

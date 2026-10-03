@@ -150,12 +150,29 @@
           <p>One small binary, no dependencies. It talks to the live cluster out of the box and follows the leader when it moves.</p>
         </div>
         <div class="install-primary" id="install-primary">
-          <p class="detect">macOS and Linux</p>
-          <div class="cmd" data-copy-wrap>
-            <code data-copy-src>curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh | sh</code>
-            <button class="copy" type="button" data-copy>Copy</button>
+          <p class="detect" id="install-detect">Install from your terminal<small>One line on every system. Each script picks the right build for your CPU and checks it against <code>checksums.txt</code> before installing.</small></p>
+          <div class="os-tabs" role="tablist" aria-label="Operating system">
+            <button type="button" role="tab" id="tab-darwin" data-os-tab="darwin" aria-controls="os-darwin" aria-selected="true">macOS</button>
+            <button type="button" role="tab" id="tab-linux" data-os-tab="linux" aria-controls="os-linux" aria-selected="false">Linux</button>
+            <button type="button" role="tab" id="tab-windows" data-os-tab="windows" aria-controls="os-windows" aria-selected="false">Windows</button>
           </div>
-          <p class="fine">The script picks the right build, checks it against <code>checksums.txt</code> and installs to <code>~/.local/bin</code>.</p>
+          <div class="os-panel" id="os-darwin" role="tabpanel" aria-labelledby="tab-darwin" data-os-panel="darwin">
+            <p class="os-shell">Terminal</p>
+            <div class="cmd" data-copy-wrap><code data-copy-src>curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh | sh</code><button class="copy" type="button" data-copy>Copy</button></div>
+            <p class="fine">Installs to <code>~/.local/bin</code>. Apple silicon and Intel. Installing this way also avoids the Gatekeeper warning a browser download gets.</p>
+          </div>
+          <div class="os-panel" id="os-linux" role="tabpanel" aria-labelledby="tab-linux" data-os-panel="linux">
+            <p class="os-shell">Any shell</p>
+            <div class="cmd" data-copy-wrap><code data-copy-src>curl -fsSL https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.sh | sh</code><button class="copy" type="button" data-copy>Copy</button></div>
+            <p class="fine">Installs to <code>~/.local/bin</code> and tells you if that folder isn’t on your <code>PATH</code> yet. x86-64 and ARM64.</p>
+          </div>
+          <div class="os-panel" id="os-windows" role="tabpanel" aria-labelledby="tab-windows" data-os-panel="windows">
+            <p class="os-shell">PowerShell</p>
+            <div class="cmd cmd-ps" data-copy-wrap><code data-copy-src>irm https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.ps1 | iex</code><button class="copy" type="button" data-copy>Copy</button></div>
+            <p class="os-shell">Command Prompt</p>
+            <div class="cmd cmd-win" data-copy-wrap><code data-copy-src>powershell -ExecutionPolicy Bypass -c &quot;irm https://raw.githubusercontent.com/shantanu-1607/Raftra/main/site/install.ps1 | iex&quot;</code><button class="copy" type="button" data-copy>Copy</button></div>
+            <p class="fine">Installs to <code>%LOCALAPPDATA%\Programs\raftra</code> and adds it to your user <code>PATH</code>, so open a new terminal afterwards. x64 and ARM64.</p>
+          </div>
         </div>
 
         <div class="matrix-wrap">
@@ -185,7 +202,7 @@
         </div>
         <div class="install-notes">
           <p><strong>macOS, downloaded in a browser:</strong> the binary isn’t signed, so Gatekeeper blocks it. Clear the flag with <code>xattr -d com.apple.quarantine raftra-cli</code>, or use the script above, which avoids it.</p>
-          <p><strong>Windows:</strong> unzip, open a terminal in that folder and run <code>.\raftra-cli.exe status</code>.</p>
+          <p><strong>Windows, downloaded as a .zip:</strong> unzip it, open a terminal in that folder and run <code>.\raftra-cli.exe status</code>. SmartScreen may warn about an unknown publisher the first time, because the binary isn’t signed.</p>
           <p><strong>Verify by hand:</strong> compare against <a href="https://github.com/shantanu-1607/Raftra/releases/latest/download/checksums.txt">checksums.txt</a>. Older versions are on the <a href="https://github.com/shantanu-1607/Raftra/releases">releases page</a>.</p>
         </div>
       </div>
